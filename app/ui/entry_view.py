@@ -1,5 +1,7 @@
-"""条目列表视图 + 自绘 delegate（状态圆点 / 复选框 / 双语双行 / 行内编辑 / 拖拽排序）。"""
+"""条目列表视图 + 自绘 delegate（状态圆点 / 复选框 / 双语双行 / 搜索高亮 / 行内编辑 / 拖拽排序）。"""
 from __future__ import annotations
+
+import re
 
 from PySide6.QtCore import QItemSelectionModel, QModelIndex, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
@@ -27,6 +29,27 @@ STATE_COLORS = {
     "translated": "#4ec9b0",
     "stale": "#d19a66",
 }
+
+HL_BG = "#5a4a00"
+HL_FG = "#ffd54f"
+
+
+def match_range(text: str, query: str, mode: str):
+    """返回命中子串在原文本中的 [start, end)，无命中返回 None。与模型过滤逻辑一致。"""
+    if not query or not text:
+        return None
+    try:
+        if mode == "regex":
+            m = re.search(query, text, re.IGNORECASE)
+        elif mode == "prefix":
+            m = re.match(re.escape(query), text, re.IGNORECASE)
+        elif mode == "exact":
+            m = re.fullmatch(re.escape(query), text, re.IGNORECASE)
+        else:  # contains
+            m = re.search(re.escape(query), text, re.IGNORECASE)
+    except re.error:
+        return None
+    return (m.start(), m.end()) if m else None
 
 
 def checkbox_rect_for_rect(r: QRect) -> QRect:
@@ -76,12 +99,16 @@ class EntryDelegate(QStyledItemDelegate):
 
         # 文本
         text = index.data(Qt.DisplayRole) or ""
+        model = index.model()
+        query = getattr(model, "query", "") or ""
+        mode = getattr(model, "mode", "contains")
+        hl = match_range(text, query, mode) if query else None
         if self.show_translation:
             # 上、下半区各自独立，避免中英文行重叠
             text_rect = option.rect.adjusted(TEXT_X, 2, -4, -ROW_H_BI // 2)
             sub_rect = option.rect.adjusted(TEXT_X, ROW_H_BI // 2, -4, -2)
             self._draw_line(painter, option, text_rect, text, 10.5,
-                            "#ffffff" if selected else "#e8e8e8")
+                            "#ffffff" if selected else "#e8e8e8", hl=hl)
             if entry is not None and entry.translation:
                 sub = entry.translation + ("  ⚠ 需更新" if entry.translation_dirty else "")
                 self._draw_line(painter, option, sub_rect, sub, 9.5,
@@ -91,11 +118,11 @@ class EntryDelegate(QStyledItemDelegate):
         else:
             text_rect = option.rect.adjusted(TEXT_X, 0, -4, 0)
             self._draw_line(painter, option, text_rect, text, 10.5,
-                            "#ffffff" if selected else "#d4d4d4")
+                            "#ffffff" if selected else "#d4d4d4", hl=hl)
         painter.restore()
 
     @staticmethod
-    def _draw_line(painter, option, rect, text, pt, color, italic=False):
+    def _draw_line(painter, option, rect, text, pt, color, italic=False, hl=None):
         f = QFont(option.font)
         f.setPointSizeF(pt)
         if italic:
@@ -105,6 +132,16 @@ class EntryDelegate(QStyledItemDelegate):
         elided = fm.elidedText(text, Qt.ElideRight, rect.width())
         painter.setPen(QColor(color))
         painter.drawText(rect, Qt.AlignVCenter | Qt.AlignLeft, elided)
+        # 搜索命中高亮（仅当命中段完全可见、未被省略时）
+        if hl is not None and elided == text:
+            start, end = hl
+            if 0 <= start < end <= len(text):
+                before_w = fm.horizontalAdvance(text[:start])
+                hit_w = fm.horizontalAdvance(text[start:end])
+                hl_rect = QRect(rect.left() + int(before_w), rect.top(), int(hit_w), rect.height())
+                painter.fillRect(hl_rect, QColor(HL_BG))
+                painter.setPen(QColor(HL_FG))
+                painter.drawText(hl_rect, Qt.AlignVCenter | Qt.AlignLeft, text[start:end])
 
     def createEditor(self, parent, option, index):
         ed = QLineEdit(parent)
@@ -124,9 +161,10 @@ class EntryDelegate(QStyledItemDelegate):
 
 
 class EntryListView(QListView):
-    """快捷键：Enter 编辑、Delete 删除、双击编辑、Esc 取消（编辑器默认）。"""
+    """快捷键：Enter 编辑、Delete 删除、Esc 清空搜索、双击编辑、Esc 取消（编辑器默认）。"""
 
     delete_requested = Signal()
+    clear_search_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -177,6 +215,9 @@ class EntryListView(QListView):
                 return
         if key == Qt.Key_Delete and self.state() != QAbstractItemView.EditingState:
             self.delete_requested.emit()
+            return
+        if key == Qt.Key_Escape and self.state() != QAbstractItemView.EditingState:
+            self.clear_search_requested.emit()
             return
         super().keyPressEvent(event)
 

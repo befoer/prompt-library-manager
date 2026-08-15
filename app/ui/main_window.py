@@ -210,6 +210,7 @@ class MainWindow(QMainWindow):
         self.btn_dedupe.clicked.connect(self.dedupe)
         self.btn_delete.clicked.connect(self.delete_selected)
         self.entry_view.delete_requested.connect(self.delete_selected)
+        self.entry_view.clear_search_requested.connect(self._clear_search)
         self.entry_view.customContextMenuRequested.connect(self._entry_context_menu)
         self.chk_show_zh.setChecked(bool(self.settings.value("translate/show_zh", True, type=bool)))
         self.chk_show_zh.toggled.connect(self._on_show_zh_toggled)
@@ -244,6 +245,8 @@ class MainWindow(QMainWindow):
 
         act(m_file, "打开词库文件夹…", "Ctrl+Shift+O", self._choose_folder)
         act(m_file, "打开 TXT…", "Ctrl+O", self.open_file_dialog)
+        m_recent = m_file.addMenu("最近打开")
+        m_recent.aboutToShow.connect(self._build_recent_menu)
         act(m_file, "导入 TXT / CSV…", "Ctrl+I", self.import_txt)
         act(m_file, "导出 TXT…", "Ctrl+E", self.export_txt)
         act(m_file, "导出 CSV（英中对照）…", None, self.export_csv)
@@ -358,6 +361,7 @@ class MainWindow(QMainWindow):
         folder = folder.resolve()
         self.current_folder = folder
         self.settings.setValue("last_folder", str(folder))
+        self._add_recent_folder(folder)
         self.sidebar.set_folder(folder)
         self._set_folder_watch()
         if autoload_first or (self.library is None and self.sidebar.first_path()):
@@ -1098,6 +1102,41 @@ class MainWindow(QMainWindow):
     def _focus_search(self) -> None:
         self.search_edit.setFocus()
         self.search_edit.selectAll()
+
+    def _clear_search(self) -> None:
+        """Esc：清空搜索框并聚焦到条目列表。"""
+        self.search_edit.clear()
+        self.entry_view.setFocus()
+
+    # ================= 最近打开 =================
+
+    def _add_recent_folder(self, folder: Path) -> None:
+        cur = self.settings.value("recent_folders", [])
+        if isinstance(cur, str):
+            cur = [cur]
+        cur = [str(f) for f in cur if f]
+        s = str(folder.resolve())
+        cur = [s] + [f for f in cur if f != s]
+        self.settings.setValue("recent_folders", cur[:8])
+
+    def _build_recent_menu(self) -> None:
+        menu = self.sender()
+        menu.clear()
+        folders = self.settings.value("recent_folders", [])
+        if isinstance(folders, str):
+            folders = [folders]
+        folders = [f for f in folders if f and Path(f).is_dir()]
+        if not folders:
+            a = menu.addAction("（暂无记录）")
+            a.setEnabled(False)
+            return
+        for f in folders:
+            menu.addAction(f, lambda _=False, path=f: self.open_folder(Path(path), autoload_first=True))
+        menu.addSeparator()
+        menu.addAction("清空记录", self._clear_recent)
+
+    def _clear_recent(self) -> None:
+        self.settings.remove("recent_folders")
 
     # ================= 撤销 / 重做 =================
 
