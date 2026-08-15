@@ -1,6 +1,7 @@
 """主窗口：布局、菜单、快捷键、文件夹模式、外部修改检测、拖拽打开。"""
 from __future__ import annotations
 
+import sys
 import threading
 from pathlib import Path
 
@@ -59,6 +60,18 @@ SORT_MODES = [
 ]
 
 
+def default_txt_dir() -> Path | None:
+    """项目默认词库目录：打包后取 exe 旁的 txt，否则取项目根目录的 txt。"""
+    cands: list[Path] = []
+    if getattr(sys, "frozen", False):
+        cands.append(Path(sys.executable).resolve().parent / "txt")
+    cands.append(Path(__file__).resolve().parent.parent.parent / "txt")
+    for c in cands:
+        if c.is_dir():
+            return c
+    return None
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -110,6 +123,10 @@ class MainWindow(QMainWindow):
         last = self.settings.value("last_folder", "")
         if last and Path(last).is_dir():
             self.open_folder(Path(last), autoload_first=True)
+        else:
+            d = default_txt_dir()
+            if d is not None:
+                self.open_folder(d, autoload_first=True)
 
     # ================= UI =================
 
@@ -283,15 +300,38 @@ class MainWindow(QMainWindow):
         act(m_tool, "词库合并…", None, self.merge_libraries)
         act(m_tool, "词库差异比较…", None, self.compare_libraries)
 
+        # 翻译菜单（工具栏按钮 + 菜单栏共用同一组 action）
+        a_offline = QAction("离线词典翻译选中", self)
+        a_offline.triggered.connect(lambda: self.translate_selected(ai=False))
+        a_ai_sel = QAction("AI 翻译选中", self)
+        a_ai_sel.triggered.connect(lambda: self.translate_selected(ai=True))
+        a_ai_all = QAction("AI 翻译全部未翻译…", self)
+        a_ai_all.triggered.connect(self.translate_all_untranslated)
+        a_edit_tr = QAction("编辑翻译…", self)
+        a_edit_tr.triggered.connect(self.edit_translation)
+        a_clear_tr = QAction("清除选中翻译", self)
+        a_clear_tr.triggered.connect(self.clear_selected_translations)
+        a_tr_cfg = QAction("翻译设置…", self)
+        a_tr_cfg.triggered.connect(self.open_translate_settings)
+
+        translate_menu = QMenu("翻译", self)
+        for a in (a_offline, a_ai_sel, a_ai_all):
+            translate_menu.addAction(a)
+        translate_menu.addSeparator()
+        translate_menu.addAction(a_edit_tr)
+        translate_menu.addAction(a_clear_tr)
+        translate_menu.addSeparator()
+        translate_menu.addAction(a_tr_cfg)
+        self.btn_translate.setMenu(translate_menu)
+
         m_translate = mb.addMenu("翻译(&L)")
-        m_translate.addAction("离线词典翻译选中", lambda: self.translate_selected(ai=False))
-        m_translate.addAction("AI 翻译选中", lambda: self.translate_selected(ai=True))
-        m_translate.addAction("AI 翻译全部未翻译…", self.translate_all_untranslated)
+        for a in (a_offline, a_ai_sel, a_ai_all):
+            m_translate.addAction(a)
         m_translate.addSeparator()
-        m_translate.addAction("编辑翻译…", self.edit_translation)
-        m_translate.addAction("清除选中翻译", self.clear_selected_translations)
+        m_translate.addAction(a_edit_tr)
+        m_translate.addAction(a_clear_tr)
         m_translate.addSeparator()
-        m_translate.addAction("翻译设置…", self.open_translate_settings)
+        m_translate.addAction(a_tr_cfg)
 
         act(m_help, "关于", "F1", self._about)
 

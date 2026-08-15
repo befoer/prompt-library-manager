@@ -275,13 +275,13 @@ class Library(QObject):
             return "untranslated"
         return "stale" if entry.translation_dirty else "translated"
 
-    # ---------- 翻译旁车文件（<name>.txt.zh.json）----------
-    # TXT 保持纯文本；翻译单独存旁车文件，重启后仍可恢复。
+    # ---------- 翻译旁车文件（txt/translations/<词库名>.json）----------
+    # TXT 保持纯文本；翻译单独存旁车文件（置于 txt 的子目录，不污染词库目录）。
 
     def sidecar_path(self) -> Path | None:
         if not self.path:
             return None
-        return self.path.with_name(self.path.name + ".zh.json")
+        return self.path.parent / "translations" / (self.path.stem + ".json")
 
     def load_sidecar(self) -> None:
         p = self.sidecar_path()
@@ -307,6 +307,7 @@ class Library(QObject):
             "version": 1,
             "entries": {e.text: e.translation for e in self.entries if e.translation},
         }
+        p.parent.mkdir(parents=True, exist_ok=True)
         tmp = p.with_name(p.name + ".tmp")
         try:
             tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")

@@ -212,7 +212,7 @@ def main() -> int:
         lib2.save()
         check("TXT 不含翻译", io.read_lines(d / "utf8.txt")[0] == ["a", "b", "c"])
         lib2.save_sidecar()
-        check("旁车文件存在", (d / "utf8.txt.zh.json").exists())
+        check("旁车文件存在", (d / "translations" / "utf8.json").exists())
         lib3 = Library.open(d / "utf8.txt")
         e0b = lib3.entries[0]
         check("旁车恢复翻译", e0b.translation == "旧翻译")

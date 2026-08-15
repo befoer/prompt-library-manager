@@ -7,12 +7,10 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont
 from PySide6.QtWidgets import (
-    QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QMenu,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -35,20 +33,10 @@ class SidebarPanel(QWidget):
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(6)
 
-        title = QLabel("📁 Prompt Libraries")
+        title = QLabel("📁 词库列表")
         title.setObjectName("sideTitle")
+        title.setToolTip("右键列表空白处：打开文件夹 / 新建 / 刷新")
         layout.addWidget(title)
-
-        row = QHBoxLayout()
-        row.setSpacing(4)
-        self.btn_open_folder = QToolButton(self, text="打开文件夹")
-        self.btn_new = QToolButton(self, text="＋新建")
-        self.btn_rename = QToolButton(self, text="重命名")
-        self.btn_delete = QToolButton(self, text="删除")
-        self.btn_refresh = QToolButton(self, text="刷新")
-        for b in (self.btn_open_folder, self.btn_new, self.btn_rename, self.btn_delete, self.btn_refresh):
-            row.addWidget(b)
-        layout.addLayout(row)
 
         self.list = QListWidget()
         self.list.setSelectionMode(QListWidget.SingleSelection)
@@ -56,9 +44,6 @@ class SidebarPanel(QWidget):
         self.list.setAcceptDrops(False)
         layout.addWidget(self.list, 1)
 
-        self.btn_open_folder.clicked.connect(self.open_folder_requested)
-        self.btn_new.clicked.connect(self.new_library_requested)
-        self.btn_refresh.clicked.connect(self.refresh_requested)
         self.list.itemDoubleClicked.connect(lambda item: self.open_requested.emit(item.data(Qt.UserRole)))
         self.list.customContextMenuRequested.connect(self._context_menu)
 
