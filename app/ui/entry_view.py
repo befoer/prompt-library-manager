@@ -264,19 +264,24 @@ class EntryListView(QListView):
                 # 点击空白处
                 if self.selection_mode == "single":
                     sel.clearSelection()
-                    self.setCurrentIndex(QModelIndex())
+                    sel.setCurrentIndex(QModelIndex(), QItemSelectionModel.NoUpdate)
                 return  # 多选 / 减选：点击空白不清空
             if self.selection_mode == "single":
                 sel.select(idx, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
-                self.setCurrentIndex(idx)
-                return
-            if self.selection_mode == "multi":
+            elif self.selection_mode == "multi":
                 if sel.isSelected(idx):
                     sel.select(idx, QItemSelectionModel.Deselect | QItemSelectionModel.Rows)
                 else:
                     sel.select(idx, QItemSelectionModel.Select | QItemSelectionModel.Rows)
             else:  # subtract
                 sel.select(idx, QItemSelectionModel.Deselect | QItemSelectionModel.Rows)
-            self.setCurrentIndex(idx)
+            # 只更新当前项，不改动选择（setCurrentIndex 会触发 ClearAndSelect，必须用 NoUpdate）
+            sel.setCurrentIndex(idx, QItemSelectionModel.NoUpdate)
             return
         super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        # 选择已在 mousePressEvent 处理，这里不交给默认（避免默认释放又改选择）
+        if event.button() == Qt.LeftButton:
+            return
+        super().mouseReleaseEvent(event)
