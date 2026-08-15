@@ -15,8 +15,10 @@ if exist dist rmdir /s /q dist
 if exist build rmdir /s /q build
 if exist PromptLibraryManager.spec del /q PromptLibraryManager.spec
 
-echo [3/3] 打包（含离线词典数据，约 1-2 分钟）...
+echo [3/3] 打包（含图标与离线词典数据，约 1-2 分钟）...
 python -m PyInstaller -w -n PromptLibraryManager ^
+    --icon icon.ico ^
+    --add-data "icon.png;." ^
     --add-data "Tags\zh-CN.txt;Tags" ^
     --add-data "Tags\danbooru.csv;Tags" ^
     --add-data "Tags\e621.csv;Tags" ^

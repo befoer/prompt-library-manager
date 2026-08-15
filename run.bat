@@ -15,5 +15,5 @@ if errorlevel 1 (
     python -m pip install --disable-pip-version-check -r requirements.txt
 )
 
-python main.py
-pause
+rem 用 pythonw 启动，不保留命令行窗口
+start "" pythonw main.py

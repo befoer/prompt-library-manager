@@ -122,6 +122,14 @@ class MainWindow(QMainWindow):
         rlay.setContentsMargins(8, 8, 8, 8)
         rlay.setSpacing(6)
 
+        # 当前词库名（重点显示）
+        self.current_file_label = QLabel("未打开词库")
+        self.current_file_label.setStyleSheet(
+            "QLabel { color:#4fc3f7; font-size:17px; font-weight:600; "
+            "padding:2px 4px; border-left:3px solid #4fc3f7; }"
+        )
+        rlay.addWidget(self.current_file_label)
+
         row1 = QHBoxLayout()
         row1.setSpacing(6)
         self.search_edit = QLineEdit()
@@ -336,6 +344,7 @@ class MainWindow(QMainWindow):
         self.library = lib
         if lib is None:
             self.entry_view.setModel(None)
+            self.sidebar.set_current(None)
             self._update_title()
             self._update_stats()
             return
@@ -1206,9 +1215,13 @@ class MainWindow(QMainWindow):
     def _update_title(self) -> None:
         if self.library is None:
             self.setWindowTitle("Prompt Library Manager")
+            self.current_file_label.setText("未打开词库")
+            self.current_file_label.setToolTip("")
             return
         mark = "● " if self.library.dirty else ""
         self.setWindowTitle(f"{mark}{self.library.name()} — Prompt Library Manager")
+        self.current_file_label.setText(f"{mark}{self.library.name()}")
+        self.current_file_label.setToolTip(str(self.library.path))
 
     def _on_dirty_changed(self, dirty: bool) -> None:
         self._update_title()

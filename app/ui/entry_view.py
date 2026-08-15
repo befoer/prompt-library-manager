@@ -76,20 +76,18 @@ class EntryDelegate(QStyledItemDelegate):
 
         # 文本
         text = index.data(Qt.DisplayRole) or ""
-        if self.show_translation and entry is not None and entry.translation:
-            text_rect = option.rect.adjusted(TEXT_X, 3, -4, 0)
-            sub_rect = option.rect.adjusted(TEXT_X, ROW_H_BI // 2 + 1, -4, -2)
+        if self.show_translation:
+            # 上、下半区各自独立，避免中英文行重叠
+            text_rect = option.rect.adjusted(TEXT_X, 2, -4, -ROW_H_BI // 2)
+            sub_rect = option.rect.adjusted(TEXT_X, ROW_H_BI // 2, -4, -2)
             self._draw_line(painter, option, text_rect, text, 10.5,
                             "#ffffff" if selected else "#e8e8e8")
-            sub = entry.translation + ("  ⚠ 需更新" if entry.translation_dirty else "")
-            self._draw_line(painter, option, sub_rect, sub, 9.5,
-                            "#9db4c0" if selected else "#7a8a94", italic=True)
-        elif self.show_translation:
-            text_rect = option.rect.adjusted(TEXT_X, 3, -4, 0)
-            sub_rect = option.rect.adjusted(TEXT_X, ROW_H_BI // 2 + 1, -4, -2)
-            self._draw_line(painter, option, text_rect, text, 10.5,
-                            "#ffffff" if selected else "#e8e8e8")
-            self._draw_line(painter, option, sub_rect, "未翻译", 9.5, "#4a4a4a")
+            if entry is not None and entry.translation:
+                sub = entry.translation + ("  ⚠ 需更新" if entry.translation_dirty else "")
+                self._draw_line(painter, option, sub_rect, sub, 9.5,
+                                "#9db4c0" if selected else "#7a8a94", italic=True)
+            else:
+                self._draw_line(painter, option, sub_rect, "未翻译", 9.5, "#4a4a4a")
         else:
             text_rect = option.rect.adjusted(TEXT_X, 0, -4, 0)
             self._draw_line(painter, option, text_rect, text, 10.5,

@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QFont
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -28,6 +29,7 @@ class SidebarPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.folder: Path | None = None
+        self._current: str | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
@@ -82,6 +84,7 @@ class SidebarPanel(QWidget):
             item.setData(Qt.UserRole, str(p))
             item.setToolTip(str(p))
             self.list.addItem(item)
+        self._apply_current_marker()
 
     def paths(self) -> list[str]:
         return [self.list.item(i).data(Qt.UserRole) for i in range(self.list.count())]
@@ -98,7 +101,29 @@ class SidebarPanel(QWidget):
         for i in range(self.list.count()):
             if self.list.item(i).data(Qt.UserRole) == target:
                 self.list.setCurrentItem(self.list.item(i))
-                return
+                break
+        self.set_current(path)
+
+    def set_current(self, path: Path | None) -> None:
+        """标记当前正在编辑的词库（加粗 + 强调色 + ▸ 前缀）。"""
+        self._current = str(path) if path is not None else None
+        self._apply_current_marker()
+
+    def _apply_current_marker(self) -> None:
+        bold = QFont(self.list.font())
+        bold.setBold(True)
+        for i in range(self.list.count()):
+            item = self.list.item(i)
+            p = item.data(Qt.UserRole)
+            name = Path(p).name
+            if p == self._current:
+                item.setText("▸ " + name)
+                item.setFont(bold)
+                item.setForeground(QColor("#4fc3f7"))
+            else:
+                item.setText(name)
+                item.setFont(self.list.font())
+                item.setForeground(QBrush())
 
     # ---------- 右键菜单 ----------
 

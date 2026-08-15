@@ -10,15 +10,17 @@
 
 ## 快速开始
 
+**推荐：双击 `启动词库管理器.vbs`**（无命令行窗口；优先启动打包好的 exe，否则回退到源码运行）
+
 ```bat
-run.bat        :: Windows 一键启动（自动装依赖）
+run.bat        :: 一键启动（用 pythonw，不留 cmd 窗口；自动装依赖）
 ```
 
 或手动：
 
 ```bat
 pip install -r requirements.txt
-python main.py
+pythonw main.py
 ```
 
 ### 桌面打包（Phase 5）
@@ -27,7 +29,9 @@ python main.py
 build.bat       :: 自动安装 PyInstaller 并打包到 dist\PromptLibraryManager\
 ```
 
-生成绿色免安装程序（含离线词典数据，无需 Python 环境），可整体拷贝到其他电脑运行。
+生成绿色免安装程序 `dist\PromptLibraryManager\PromptLibraryManager.exe`：
+- 双击启动，**不出现命令行窗口**；应用图标取自根目录 `icon.png`（打包时转为 `icon.ico`）
+- 含离线词典数据，无需 Python 环境，可整体拷贝到其他电脑运行
 
 技术栈：Python 3.10+ / PySide6（Qt）。纯本地运行，无云依赖。
 
