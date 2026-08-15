@@ -285,6 +285,9 @@ def main() -> int:
         print("[7] GUI 双语与翻译流程")
         tmp_txt = d / "libs"
         shutil.copytree(ROOT / "txt", tmp_txt)
+        _tr = tmp_txt / "translations"
+        if _tr.exists():
+            shutil.rmtree(_tr)  # 清空复制的翻译，确保“自动翻译”检查真实有效
         from PySide6.QtCore import QSettings  # noqa: E402
         _cfg = QSettings("PromptLib", "PromptLibraryManager")
         _saved = {k: _cfg.value(k) for k in ("last_folder", "recent_folders")}

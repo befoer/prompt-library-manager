@@ -15,8 +15,8 @@ if exist dist rmdir /s /q dist
 if exist build rmdir /s /q build
 if exist PromptLibraryManager.spec del /q PromptLibraryManager.spec
 
-echo [3/3] 打包（含图标与离线词典数据，约 1-2 分钟）...
-python -m PyInstaller -w -n PromptLibraryManager ^
+echo [3/3] 打包单文件 exe（含图标与离线词典数据，约 1-3 分钟）...
+python -m PyInstaller -w --onefile -n PromptLibraryManager ^
     --icon icon.ico ^
     --add-data "icon.png;." ^
     --add-data "Tags\zh-CN.txt;Tags" ^
@@ -30,6 +30,6 @@ if errorlevel 1 (
 )
 
 echo.
-echo 完成！程序在：dist\PromptLibraryManager\PromptLibraryManager.exe
-echo 可双击运行，或拷贝整个 dist\PromptLibraryManager 文件夹到其他电脑。
+echo 完成！单文件程序在：dist\PromptLibraryManager.exe
+echo 双击即可运行（首次启动会解压，稍慢几秒）。
 pause

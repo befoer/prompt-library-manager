@@ -192,6 +192,14 @@ class MainWindow(QMainWindow):
         self.btn_translate.setPopupMode(QToolButton.InstantPopup)
         row2.addWidget(self.btn_batch)
         row2.addWidget(self.btn_translate)
+        self.sel_mode_combo = QComboBox()
+        self.sel_mode_combo.addItems(["多选", "单选", "减选"])
+        self.sel_mode_combo.setToolTip("选择模式：多选=点击切换；单选=只选一项；减选=从选中移除")
+        self.layout_combo = QComboBox()
+        self.layout_combo.addItems(["分栏", "紧凑"])
+        self.layout_combo.setToolTip("显示布局：分栏=英文左中文右；紧凑=英文紧邻中文")
+        row2.addWidget(self.sel_mode_combo)
+        row2.addWidget(self.layout_combo)
         row2.addStretch(1)
         row2.addWidget(self.btn_delete)
         rlay.addLayout(row2)
@@ -232,6 +240,8 @@ class MainWindow(QMainWindow):
         self.entry_view.delete_requested.connect(self.delete_selected)
         self.entry_view.clear_search_requested.connect(self._clear_search)
         self.entry_view.customContextMenuRequested.connect(self._entry_context_menu)
+        self.sel_mode_combo.currentIndexChanged.connect(self._on_sel_mode_changed)
+        self.layout_combo.currentIndexChanged.connect(self._on_layout_changed)
 
         self.sidebar.open_folder_requested.connect(self._choose_folder)
         self.sidebar.new_library_requested.connect(self.new_library)
@@ -433,6 +443,7 @@ class MainWindow(QMainWindow):
         self.mode_combo.setCurrentIndex(0)
         self.sidebar.select_path(path)
         self.statusBar().showMessage(f"已打开 {path.name}（{lib.encoding}）", 3000)
+        self._auto_offline_translate()
 
     def open_file_dialog(self) -> None:
         start = str(self.current_folder) if self.current_folder else str(Path.home())
@@ -1159,6 +1170,12 @@ class MainWindow(QMainWindow):
         """Esc：清空搜索框并聚焦到条目列表。"""
         self.search_edit.clear()
         self.entry_view.setFocus()
+
+    def _on_sel_mode_changed(self, index: int) -> None:
+        self.entry_view.set_selection_mode(["multi", "single", "subtract"][index])
+
+    def _on_layout_changed(self, index: int) -> None:
+        self.entry_view.set_layout(["split", "compact"][index])
 
     # ================= 最近打开 =================
 

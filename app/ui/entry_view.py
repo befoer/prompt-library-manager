@@ -62,7 +62,11 @@ def checkbox_rect_for_rect(r: QRect) -> QRect:
 
 
 class EntryDelegate(QStyledItemDelegate):
-    """绘制：状态圆点 + 复选框（镜像选中）+ 英文（左栏）+ 中文翻译（右栏）。"""
+    """绘制：状态圆点 + 复选框（镜像选中）+ 英文 + 中文翻译（分栏 / 紧凑两种布局）。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.layout = "split"  # "split" = 分栏, "compact" = 紧凑
 
     def sizeHint(self, option, index) -> QSize:
         return QSize(0, ROW_H)
@@ -97,34 +101,57 @@ class EntryDelegate(QStyledItemDelegate):
         if view is not None:
             view.style().drawControl(QStyle.CE_CheckBox, cb, painter, view)
 
-        # 两栏文本
+        # 文本
         text = index.data(Qt.DisplayRole) or ""
         model = index.model()
         query = getattr(model, "query", "") or ""
         mode = getattr(model, "mode", "contains")
         hl = match_range(text, query, mode) if query else None
+        en_color = "#ffffff" if selected else "#e8e8e8"
+        zh_color = "#d8e6ee" if selected else "#93a7b3"
 
         total = option.rect.adjusted(TEXT_X, 0, -4, 0)
-        left_w = max(0, int(total.width() * SPLIT_RATIO) - DIVIDER_GAP // 2)
-        left_rect = QRect(total.left(), total.top(), left_w, total.height())
-        right_rect = QRect(total.left() + left_w + DIVIDER_GAP, total.top(),
-                           max(0, total.width() - left_w - DIVIDER_GAP), total.height())
 
-        # 分隔线
-        painter.setPen(QColor("#33363b"))
-        dx = total.left() + left_w + DIVIDER_GAP // 2
-        painter.drawLine(dx, option.rect.top() + 5, dx, option.rect.bottom() - 5)
+        if self.layout == "compact":
+            # 紧凑布局：英文自然宽度 + "|" + 中文紧随其后，减少短条目间隙
+            probe = QFont(option.font)
+            probe.setPointSizeF(10.5)
+            en_w = min(QFontMetrics(probe).horizontalAdvance(text), int(total.width() * 0.6))
+            en_rect = QRect(total.left(), total.top(), en_w, total.height())
+            self._draw_line(painter, option, en_rect, text, 10.5, en_color, hl=hl)
 
-        # 左栏：英文原文（等宽字体，带搜索高亮）
-        self._draw_line(painter, option, left_rect, text, 10.5,
-                        "#ffffff" if selected else "#e8e8e8", hl=hl)
+            sep = " | "
+            sepf = QFont(option.font)
+            sepf.setPointSizeF(10)
+            sep_w = QFontMetrics(sepf).horizontalAdvance(sep)
+            sep_rect = QRect(en_rect.right(), total.top(), sep_w, total.height())
+            painter.setFont(sepf)
+            painter.setPen(QColor("#4a4d52"))
+            painter.drawText(sep_rect, Qt.AlignVCenter | Qt.AlignLeft, sep)
 
-        # 右栏：中文翻译（正常黑体，非斜体；未翻译则留空）
-        if entry is not None and entry.translation:
-            zh = entry.translation + (" ⚠ 需更新" if entry.translation_dirty else "")
-            self._draw_line(painter, option, right_rect, zh, 10,
-                            "#d8e6ee" if selected else "#93a7b3",
-                            family="Microsoft YaHei UI")
+            zh_rect = QRect(en_rect.right() + sep_w, total.top(),
+                            max(0, total.right() - en_rect.right() - sep_w), total.height())
+            if entry is not None and entry.translation:
+                zh = entry.translation + (" ⚠ 需更新" if entry.translation_dirty else "")
+                self._draw_line(painter, option, zh_rect, zh, 10, zh_color,
+                                family="Microsoft YaHei UI")
+        else:
+            # 分栏布局：英文左栏 + 中文右栏（固定比例 + 分隔线）
+            left_w = max(0, int(total.width() * SPLIT_RATIO) - DIVIDER_GAP // 2)
+            left_rect = QRect(total.left(), total.top(), left_w, total.height())
+            right_rect = QRect(total.left() + left_w + DIVIDER_GAP, total.top(),
+                               max(0, total.width() - left_w - DIVIDER_GAP), total.height())
+
+            painter.setPen(QColor("#33363b"))
+            dx = total.left() + left_w + DIVIDER_GAP // 2
+            painter.drawLine(dx, option.rect.top() + 5, dx, option.rect.bottom() - 5)
+
+            self._draw_line(painter, option, left_rect, text, 10.5, en_color, hl=hl)
+
+            if entry is not None and entry.translation:
+                zh = entry.translation + (" ⚠ 需更新" if entry.translation_dirty else "")
+                self._draw_line(painter, option, right_rect, zh, 10, zh_color,
+                                family="Microsoft YaHei UI")
 
         painter.restore()
 
@@ -191,6 +218,7 @@ class EntryListView(QListView):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.setFont(QFont("Consolas", 10))
         self.setItemDelegate(EntryDelegate(self))
+        self.selection_mode = "multi"  # multi / single / subtract
 
     def set_drag_enabled(self, enabled: bool) -> None:
         """有筛选时禁用拖拽排序（避免拖拽与过滤行号冲突）。"""
@@ -201,6 +229,15 @@ class EntryListView(QListView):
         else:
             self.setDragEnabled(False)
             self.setDragDropMode(QAbstractItemView.NoDragDrop)
+
+    def set_selection_mode(self, mode: str) -> None:
+        """multi=点击切换选中；single=只选一项；subtract=点击从选中移除。"""
+        self.selection_mode = mode
+
+    def set_layout(self, layout: str) -> None:
+        """split=分栏布局；compact=紧凑布局（英文紧邻中文）。"""
+        self.itemDelegate().layout = layout
+        self.viewport().update()
 
     def selectionChanged(self, selected, deselected) -> None:
         super().selectionChanged(selected, deselected)
@@ -224,13 +261,20 @@ class EntryListView(QListView):
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
             idx = self.indexAt(event.pos())
-            if idx.isValid():
-                cb = checkbox_rect_for_rect(self.visualRect(idx))
-                if cb.contains(event.pos()):
-                    sel = self.selectionModel()
-                    if sel.isSelected(idx):
-                        sel.select(idx, QItemSelectionModel.Deselect | QItemSelectionModel.Rows)
-                    else:
-                        sel.select(idx, QItemSelectionModel.Select | QItemSelectionModel.Rows)
-                    return
+            sel = self.selectionModel()
+            if not idx.isValid():
+                # 点击空白处
+                if self.selection_mode == "single":
+                    sel.clearSelection()
+                return  # 多选 / 减选：点击空白不清空
+            if self.selection_mode == "multi":
+                # 模拟 Ctrl：切换该行选中状态（不清空其它）
+                event.setModifiers(event.modifiers() | Qt.ControlModifier)
+            elif self.selection_mode == "subtract":
+                if not sel.isSelected(idx):
+                    return  # 未选中的行在减选模式下不做任何事
+                event.setModifiers(event.modifiers() | Qt.ControlModifier)
+            # single：默认行为（清空并选中该行）
+            super().mousePressEvent(event)
+            return
         super().mousePressEvent(event)
