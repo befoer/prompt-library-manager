@@ -3,3 +3,7 @@ __pycache__/
 .fetch/
 txt/
 Tags/
+dist/
+build/
+*.spec
+

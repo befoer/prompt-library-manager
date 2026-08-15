@@ -35,7 +35,7 @@ from app.core.commands import (
     ReorderCommand,
     SetTranslationsCommand,
 )
-from app.core.dictionary import OfflineDictionary
+from app.core.dictionary import OfflineDictionary, default_tags_dirs
 from app.core.model import Library
 from app.ui.dialogs import DiffDialog, RandomBatchDialog, RandomPickDialog, confirm
 from app.ui.entry_model import EntryListModel, MODES
@@ -77,9 +77,8 @@ class MainWindow(QMainWindow):
 
         self._load_ai_config()
         dict_override = str(self.settings.value("translate/dict_dir", ""))
-        default_tags = Path(__file__).resolve().parent.parent.parent / "Tags"
         self.dictionary = OfflineDictionary(
-            [Path(dict_override)] if dict_override else [default_tags]
+            [Path(dict_override)] if dict_override else default_tags_dirs()
         )
         try:
             self.dictionary.load()
@@ -1290,15 +1289,16 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "关于 Prompt Library Manager",
-            "Prompt / Tag 文本词库管理器（Phase 2 + 3）\n\n"
+            "Prompt / Tag 文本词库管理器（Phase 1-5）\n\n"
             "用于管理 ComfyUI Wildcard / 文本列表词库的本地 TXT 工具。\n"
             "整行 = 一个随机候选项，导出 TXT 只输出原始文本。\n\n"
             "Phase 1：打开/搜索/增删改/批量删除/去重/排序/拖拽排序/\n"
             "　　　　导入导出/随机抽取/Ctrl+S/Ctrl+Z/编码识别/外部修改检测\n"
             "Phase 2：批量替换、跨词库复制/移动\n"
-            "Phase 3：双语显示、离线词典翻译（Tags/zh-CN.txt）、\n"
-            "　　　　AI 翻译（OpenAI 兼容 / 百度，带缓存）、翻译状态标记\n\n"
-            "后续阶段：CSV 导入导出、词库合并、差异比较、桌面打包。",
+            "Phase 3：双语显示、离线词典（Tags/zh-CN.txt）、AI 翻译\n"
+            "　　　　（OpenAI 兼容 / 百度，带缓存）、翻译状态标记\n"
+            "Phase 4：CSV 英中导入导出、Tag 统计、词库合并、差异比较\n"
+            "Phase 5：虚拟列表性能优化、PyInstaller 桌面打包（build.bat）",
         )
 
     def _restore_settings(self) -> None:

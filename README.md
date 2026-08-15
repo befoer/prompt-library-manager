@@ -21,6 +21,14 @@ pip install -r requirements.txt
 python main.py
 ```
 
+### 桌面打包（Phase 5）
+
+```bat
+build.bat       :: 自动安装 PyInstaller 并打包到 dist\PromptLibraryManager\
+```
+
+生成绿色免安装程序（含离线词典数据，无需 Python 环境），可整体拷贝到其他电脑运行。
+
 技术栈：Python 3.10+ / PySide6（Qt）。纯本地运行，无云依赖。
 
 ---
@@ -131,4 +139,5 @@ python tests/smoke_test.py
 
 ## 后续阶段（Roadmap）
 
-- **Phase 5**：桌面打包（PyInstaller 单目录/单文件，`build.bat`）
+- 虚拟列表、性能优化与桌面打包已完成（Phase 5）
+- 可继续打磨：AI 翻译失败重试策略细化、翻译质量评估、多语言支持、云同步等

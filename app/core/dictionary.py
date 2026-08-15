@@ -14,8 +14,22 @@
 from __future__ import annotations
 
 import csv
+import sys
 import threading
 from pathlib import Path
+
+
+def default_tags_dirs() -> list[Path]:
+    """候选词典目录：打包后的 exe 目录 / _internal / 开发目录。"""
+    cands: list[Path] = []
+    if getattr(sys, "frozen", False):
+        base = Path(sys.executable).resolve().parent
+        cands.extend([base / "Tags", base / "_internal" / "Tags"])
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            cands.append(Path(meipass) / "Tags")
+    cands.append(Path(__file__).resolve().parent.parent.parent / "Tags")
+    return cands
 
 
 class OfflineDictionary:
@@ -37,32 +51,33 @@ class OfflineDictionary:
             self._zh.clear()
             self._alias.clear()
             self._load_error = None
-            zh_file: Path | None = None
-            alias_files: list[Path] = []
+            # 取第一个含 zh-CN.txt 的目录（打包后优先 exe 旁目录）
+            source: Path | None = None
             for d in self.dirs:
-                if not d.is_dir():
-                    continue
-                if (d / "zh-CN.txt").exists():
-                    zh_file = d / "zh-CN.txt"
-                for name in ("danbooru.csv", "e621.csv"):
-                    if (d / name).exists():
-                        alias_files.append(d / name)
-            if zh_file is None:
+                if d.is_dir() and (d / "zh-CN.txt").exists():
+                    source = d
+                    break
+            if source is None:
                 self._load_error = "未找到 zh-CN.txt（需要 Tags 目录或翻译设置中指定）"
-            else:
-                try:
-                    text = zh_file.read_text(encoding="utf-8")
-                    for line in text.splitlines():
-                        line = line.strip()
-                        if not line or "=" not in line:
-                            continue
-                        k, v = line.split("=", 1)
-                        k = _norm(k)
-                        v = v.strip()
-                        if k and v:
-                            self._zh[k] = v
-                except Exception as exc:  # noqa: BLE001
-                    self._load_error = f"zh-CN.txt 读取失败: {exc}"
+                self._loaded = True
+                return 0, 0
+            zh_file = source / "zh-CN.txt"
+            alias_files = [
+                f for f in (source / "danbooru.csv", source / "e621.csv") if f.exists()
+            ]
+            try:
+                text = zh_file.read_text(encoding="utf-8")
+                for line in text.splitlines():
+                    line = line.strip()
+                    if not line or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    k = _norm(k)
+                    v = v.strip()
+                    if k and v:
+                        self._zh[k] = v
+            except Exception as exc:  # noqa: BLE001
+                self._load_error = f"zh-CN.txt 读取失败: {exc}"
             for f in alias_files:
                 try:
                     with open(f, encoding="utf-8", newline="") as fh:
