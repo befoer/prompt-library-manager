@@ -57,6 +57,11 @@ class AIConfig:
                 return "百度翻译需要 AppID 和密钥"
         return None
 
+    def normalize(self) -> None:
+        """自动修正接口类型：未填 API Key 但填了百度 AppID/密钥时，改用百度。"""
+        if self.provider == "openai" and not self.api_key and self.baidu_appid and self.baidu_secret:
+            self.provider = "baidu"
+
 
 # ---------- 翻译缓存 ----------
 

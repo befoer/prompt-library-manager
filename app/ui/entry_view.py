@@ -266,15 +266,26 @@ class EntryListView(QListView):
                 # 点击空白处
                 if self.selection_mode == "single":
                     sel.clearSelection()
+                    self.setCurrentIndex(QModelIndex())
                 return  # 多选 / 减选：点击空白不清空
-            if self.selection_mode == "multi":
-                # 模拟 Ctrl：切换该行选中状态（不清空其它）
-                event.setModifiers(event.modifiers() | Qt.ControlModifier)
-            elif self.selection_mode == "subtract":
-                if not sel.isSelected(idx):
-                    return  # 未选中的行在减选模式下不做任何事
-                event.setModifiers(event.modifiers() | Qt.ControlModifier)
-            # single：默认行为（清空并选中该行）
+            if self.selection_mode == "single":
+                super().mousePressEvent(event)  # 默认：清空并选中该行
+                return
+            # 多选 / 减选：先记录选中行，再调用基类（记录按下位置供拖拽），最后手动修正
+            before = {i.row() for i in sel.selectedRows()}
+            row = idx.row()
             super().mousePressEvent(event)
+            if self.selection_mode == "multi":
+                if row in before:
+                    before.discard(row)  # 再点已选中的：仅移除它，不清空其它
+                else:
+                    before.add(row)
+            else:  # subtract
+                before.discard(row)
+            sel.clearSelection()
+            model = self.model()
+            for r in before:
+                sel.select(model.index(r, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+            self.setCurrentIndex(idx)
             return
         super().mousePressEvent(event)

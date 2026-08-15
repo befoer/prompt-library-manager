@@ -21,6 +21,7 @@ QToolButton, QPushButton {
 }
 QToolButton:hover, QPushButton:hover { background: #3c3c3c; border-color: #4a4a4a; }
 QToolButton:pressed, QPushButton:pressed { background: #2a2d2e; }
+QToolButton:checked { background: #0e639c; border-color: #4fc3f7; color: #ffffff; }
 QToolButton:disabled, QPushButton:disabled { color: #6e6e6e; background: #2d2d2d; }
 QToolButton::menu-indicator { image: none; }
 QLineEdit, QComboBox, QSpinBox, QPlainTextEdit {

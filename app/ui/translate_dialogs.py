@@ -111,6 +111,17 @@ class TranslationSettingsDialog(QDialog):
         lay.addWidget(buttons)
 
         self._load_from_cfg()
+        self.edit_key.textChanged.connect(self._on_provider_fields_changed)
+        self.edit_appid.textChanged.connect(self._on_provider_fields_changed)
+        self.edit_secret.textChanged.connect(self._on_provider_fields_changed)
+
+    def _on_provider_fields_changed(self, *_args) -> None:
+        """填了百度 AppID/密钥却没填 API Key 时，自动把接口类型切到百度。"""
+        if (not self.edit_key.text().strip()
+                and self.edit_appid.text().strip()
+                and self.edit_secret.text().strip()
+                and self.combo_provider.currentData() != "baidu"):
+            self.combo_provider.setCurrentIndex(self.combo_provider.findData("baidu"))
 
     # ---------- 加载 / 保存 ----------
 
@@ -184,6 +195,7 @@ class TranslationSettingsDialog(QDialog):
             baidu_appid=self.edit_appid.text().strip(),
             baidu_secret=self.edit_secret.text().strip(),
         )
+        c.normalize()
         return c
 
     def result_cfg(self) -> AIConfig:

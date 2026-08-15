@@ -9,6 +9,7 @@ from PySide6.QtCore import QFileSystemWatcher, QSettings, Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -178,29 +179,52 @@ class MainWindow(QMainWindow):
         self.btn_import = QToolButton(text="导入")
         self.btn_export = QToolButton(text="导出")
         self.btn_dedupe = QToolButton(text="去重")
-        self.btn_sort = QToolButton(text="排序 ▾")
+        self.btn_sort = QToolButton(text="⇅")
         self.btn_sort.setPopupMode(QToolButton.InstantPopup)
+        self.btn_sort.setToolTip("排序（A→Z / 中文拼音 / 随机…）")
         self.btn_delete = QToolButton(text="删除选中")
         row2.addWidget(self.btn_save)
         row2.addWidget(self.btn_import)
         row2.addWidget(self.btn_export)
         row2.addWidget(self.btn_dedupe)
         row2.addWidget(self.btn_sort)
+        # 选择模式（布尔运算风格图标按钮，互斥，默认多选）
+        self.sel_group = QButtonGroup(self)
+        self.sel_group.setExclusive(True)
+        self.btn_sel_multi = QToolButton()
+        self.btn_sel_multi.setText("⊞")
+        self.btn_sel_multi.setCheckable(True)
+        self.btn_sel_multi.setChecked(True)
+        self.btn_sel_multi.setToolTip("多选：点击切换选中（默认）")
+        self.btn_sel_single = QToolButton()
+        self.btn_sel_single.setText("⊙")
+        self.btn_sel_single.setCheckable(True)
+        self.btn_sel_single.setToolTip("单选：只选中一项")
+        self.btn_sel_sub = QToolButton()
+        self.btn_sel_sub.setText("⊟")
+        self.btn_sel_sub.setCheckable(True)
+        self.btn_sel_sub.setToolTip("减选：从选中移除")
+        self.sel_group.addButton(self.btn_sel_multi)
+        self.sel_group.addButton(self.btn_sel_single)
+        self.sel_group.addButton(self.btn_sel_sub)
+        row2.addWidget(self.btn_sel_multi)
+        row2.addWidget(self.btn_sel_single)
+        row2.addWidget(self.btn_sel_sub)
+        # 紧凑布局开关
+        self.btn_compact = QToolButton(text="紧凑")
+        self.btn_compact.setCheckable(True)
+        self.btn_compact.setToolTip("紧凑布局：英文紧邻中文（如 Simple background | 朴素的背景）")
+        row2.addWidget(self.btn_compact)
         self.btn_batch = QToolButton(text="批量 ▾")
         self.btn_batch.setPopupMode(QToolButton.InstantPopup)
         self.btn_translate = QToolButton(text="翻译 ▾")
         self.btn_translate.setPopupMode(QToolButton.InstantPopup)
         row2.addWidget(self.btn_batch)
         row2.addWidget(self.btn_translate)
-        self.sel_mode_combo = QComboBox()
-        self.sel_mode_combo.addItems(["多选", "单选", "减选"])
-        self.sel_mode_combo.setToolTip("选择模式：多选=点击切换；单选=只选一项；减选=从选中移除")
-        self.layout_combo = QComboBox()
-        self.layout_combo.addItems(["分栏", "紧凑"])
-        self.layout_combo.setToolTip("显示布局：分栏=英文左中文右；紧凑=英文紧邻中文")
-        row2.addWidget(self.sel_mode_combo)
-        row2.addWidget(self.layout_combo)
         row2.addStretch(1)
+        self.btn_clear_sel = QToolButton(text="取消选中")
+        self.btn_clear_sel.setToolTip("清除所有选中状态")
+        row2.addWidget(self.btn_clear_sel)
         row2.addWidget(self.btn_delete)
         rlay.addLayout(row2)
 
@@ -240,8 +264,11 @@ class MainWindow(QMainWindow):
         self.entry_view.delete_requested.connect(self.delete_selected)
         self.entry_view.clear_search_requested.connect(self._clear_search)
         self.entry_view.customContextMenuRequested.connect(self._entry_context_menu)
-        self.sel_mode_combo.currentIndexChanged.connect(self._on_sel_mode_changed)
-        self.layout_combo.currentIndexChanged.connect(self._on_layout_changed)
+        self.btn_sel_multi.toggled.connect(lambda on: on and self._set_sel_mode("multi"))
+        self.btn_sel_single.toggled.connect(lambda on: on and self._set_sel_mode("single"))
+        self.btn_sel_sub.toggled.connect(lambda on: on and self._set_sel_mode("subtract"))
+        self.btn_compact.toggled.connect(self._on_compact_toggled)
+        self.btn_clear_sel.clicked.connect(self._clear_selection)
 
         self.sidebar.open_folder_requested.connect(self._choose_folder)
         self.sidebar.new_library_requested.connect(self.new_library)
@@ -645,6 +672,7 @@ class MainWindow(QMainWindow):
             baidu_appid=str(s.value("translate/baidu_appid", "")),
             baidu_secret=str(s.value("translate/baidu_secret", "")),
         )
+        self.ai_cfg.normalize()
 
     def _save_ai_config(self) -> None:
         s = self.settings
@@ -1171,11 +1199,15 @@ class MainWindow(QMainWindow):
         self.search_edit.clear()
         self.entry_view.setFocus()
 
-    def _on_sel_mode_changed(self, index: int) -> None:
-        self.entry_view.set_selection_mode(["multi", "single", "subtract"][index])
+    def _set_sel_mode(self, mode: str) -> None:
+        self.entry_view.set_selection_mode(mode)
 
-    def _on_layout_changed(self, index: int) -> None:
-        self.entry_view.set_layout(["split", "compact"][index])
+    def _on_compact_toggled(self, on: bool) -> None:
+        self.entry_view.set_layout("compact" if on else "split")
+
+    def _clear_selection(self) -> None:
+        self.entry_view.clearSelection()
+        self.entry_view.setFocus()
 
     # ================= 最近打开 =================
 
