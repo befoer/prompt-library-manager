@@ -281,19 +281,20 @@ def main() -> int:
         check("接口失败记录错误", len(errs) == 1)
         server.shutdown()
 
-        # ---------- 7. GUI：双语显示 + 离线翻译 + 状态 ----------
+        # ---------- 7. GUI：双语两栏 + 自动离线翻译 + 状态 ----------
         print("[7] GUI 双语与翻译流程")
         tmp_txt = d / "libs"
         shutil.copytree(ROOT / "txt", tmp_txt)
+        from PySide6.QtCore import QSettings  # noqa: E402
+        QSettings("PromptLib", "PromptLibraryManager").setValue("last_folder", str(tmp_txt))
         win = MainWindow()
         win.show()
-        app.processEvents()
-        win.open_folder(tmp_txt, autoload_first=True)
         app.processEvents()
         check("打开词库文件夹", win.library is not None)
         check("侧栏文件数", win.sidebar.list.count() == 3)
         total0 = win.library.counts()["total"]
         check("示例词库非空", total0 > 0)
+        check("打开自动离线翻译", win.library.counts()["translated"] > 0)
 
         win.add_entry()
         app.processEvents()
@@ -323,11 +324,8 @@ def main() -> int:
         win._apply_filter()
         check("GUI 实时筛选", win.model.rowCount() > 0 and win.model.rowCount() < total0)
 
-        # 双语显示切换
-        win.entry_view.set_show_translation(False)
-        check("单行模式行高", win.entry_view.sizeHintForRow(0) <= 30)
-        win.entry_view.set_show_translation(True)
-        check("双行模式行高", win.entry_view.sizeHintForRow(0) >= 36)
+        # 两栏布局：单行高度
+        check("单行两栏行高", win.entry_view.sizeHintForRow(0) <= 30)
 
         # 离线词典翻译（真实 Tags 词典已由 MainWindow 加载）
         win.search_edit.clear()

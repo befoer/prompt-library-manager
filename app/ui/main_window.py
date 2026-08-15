@@ -9,7 +9,6 @@ from PySide6.QtCore import QFileSystemWatcher, QSettings, Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -161,9 +160,6 @@ class MainWindow(QMainWindow):
         self.btn_new_entry.setToolTip("在列表底部新增条目（Ctrl+N）")
         row1.addWidget(self.search_edit, 1)
         row1.addWidget(self.mode_combo)
-        self.chk_show_zh = QCheckBox("中文")
-        self.chk_show_zh.setToolTip("双语显示：英文 + 中文翻译")
-        row1.addWidget(self.chk_show_zh)
         row1.addWidget(self.btn_random)
         row1.addWidget(self.btn_new_entry)
         rlay.addLayout(row1)
@@ -205,7 +201,7 @@ class MainWindow(QMainWindow):
         self.splitter.addWidget(right)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([240, 1040])
+        self.splitter.setSizes([150, 1130])
         self.setCentralWidget(self.splitter)
 
         # 状态栏
@@ -229,9 +225,6 @@ class MainWindow(QMainWindow):
         self.entry_view.delete_requested.connect(self.delete_selected)
         self.entry_view.clear_search_requested.connect(self._clear_search)
         self.entry_view.customContextMenuRequested.connect(self._entry_context_menu)
-        self.chk_show_zh.setChecked(bool(self.settings.value("translate/show_zh", True, type=bool)))
-        self.chk_show_zh.toggled.connect(self._on_show_zh_toggled)
-        self.entry_view.set_show_translation(self.chk_show_zh.isChecked())
 
         self.sidebar.open_folder_requested.connect(self._choose_folder)
         self.sidebar.new_library_requested.connect(self.new_library)
@@ -657,13 +650,25 @@ class MainWindow(QMainWindow):
             self.status_dict.setText("词典 未加载")
             self.status_dict.setToolTip(d.error or "未找到词典文件（需要 Tags 目录或翻译设置指定）")
 
-    def _on_show_zh_toggled(self, on: bool) -> None:
-        self.settings.setValue("translate/show_zh", on)
-        self.entry_view.set_show_translation(on)
-
     def _flush_sidecar(self) -> None:
         if self.library is not None:
             self.library.save_sidecar()
+
+    def _auto_offline_translate(self) -> None:
+        """打开词库后自动用离线词典翻译未翻译的条目（不覆盖已有翻译）。"""
+        lib = self.library
+        if lib is None or not self.dictionary.loaded:
+            return
+        changes: list[tuple[str, str]] = []
+        for e in lib.entries:
+            if not e.translation:
+                zh = self.dictionary.translate_entry(e.text)
+                if zh:
+                    changes.append((e.id, zh))
+        if changes:
+            lib.apply_translations(changes)
+            lib.save_sidecar()
+            self.statusBar().showMessage(f"已自动离线翻译 {len(changes)} 条", 3000)
 
     def selected_texts(self) -> list[str]:
         rows = sorted({i.row() for i in self.entry_view.selectionModel().selectedIndexes()})
@@ -1397,7 +1402,7 @@ class MainWindow(QMainWindow):
         geo = self.settings.value("geometry")
         if geo:
             self.restoreGeometry(geo)
-        state = self.settings.value("splitter")
+        state = self.settings.value("splitter_v2")
         if state:
             self.splitter.restoreState(state)
 
@@ -1407,5 +1412,5 @@ class MainWindow(QMainWindow):
             return
         self._flush_sidecar()
         self.settings.setValue("geometry", self.saveGeometry())
-        self.settings.setValue("splitter", self.splitter.saveState())
+        self.settings.setValue("splitter_v2", self.splitter.saveState())
         event.accept()
