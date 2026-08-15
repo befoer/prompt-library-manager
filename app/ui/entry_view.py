@@ -218,8 +218,7 @@ class EntryListView(QListView):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.setFont(QFont("Consolas", 10))
         self.setItemDelegate(EntryDelegate(self))
-        self.selection_mode = "multi"  # multi / single / subtract
-        # 选择模式改为手动处理点击，拖拽排序与自定义多选冲突，故禁用
+        # 点击手动切换选中（多选）；拖拽排序与自定义选择冲突，故禁用
         self.setDragDropMode(QAbstractItemView.NoDragDrop)
         self.setDragEnabled(False)
         self.setAcceptDrops(False)
@@ -227,10 +226,6 @@ class EntryListView(QListView):
     def set_drag_enabled(self, enabled: bool) -> None:
         """拖拽排序已禁用（与手动多选冲突），保留接口兼容。"""
         return
-
-    def set_selection_mode(self, mode: str) -> None:
-        """multi=点击切换选中；single=只选一项；subtract=点击从选中移除。"""
-        self.selection_mode = mode
 
     def set_layout(self, layout: str) -> None:
         """split=分栏布局；compact=紧凑布局（英文紧邻中文）。"""
@@ -261,20 +256,12 @@ class EntryListView(QListView):
             idx = self.indexAt(event.pos())
             sel = self.selectionModel()
             if not idx.isValid():
-                # 点击空白处
-                if self.selection_mode == "single":
-                    sel.clearSelection()
-                    sel.setCurrentIndex(QModelIndex(), QItemSelectionModel.NoUpdate)
-                return  # 多选 / 减选：点击空白不清空
-            if self.selection_mode == "single":
-                sel.select(idx, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
-            elif self.selection_mode == "multi":
-                if sel.isSelected(idx):
-                    sel.select(idx, QItemSelectionModel.Deselect | QItemSelectionModel.Rows)
-                else:
-                    sel.select(idx, QItemSelectionModel.Select | QItemSelectionModel.Rows)
-            else:  # subtract
+                return  # 点击空白处不清空选择
+            # 多选：点击切换选中（再点已选中的 = 取消该条）
+            if sel.isSelected(idx):
                 sel.select(idx, QItemSelectionModel.Deselect | QItemSelectionModel.Rows)
+            else:
+                sel.select(idx, QItemSelectionModel.Select | QItemSelectionModel.Rows)
             # 只更新当前项，不改动选择（setCurrentIndex 会触发 ClearAndSelect，必须用 NoUpdate）
             sel.setCurrentIndex(idx, QItemSelectionModel.NoUpdate)
             return

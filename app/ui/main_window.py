@@ -10,11 +10,9 @@ from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
-    QButtonGroup,
     QComboBox,
     QDialog,
     QFileDialog,
-    QFrame,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -210,38 +208,6 @@ class MainWindow(QMainWindow):
         row2.addWidget(self.btn_translate)
         row2.addWidget(self.btn_compact)
         row2.addWidget(self.btn_sort)
-        # 细线隔开排序与选择模式
-        self.sep = QFrame()
-        self.sep.setFrameShape(QFrame.VLine)
-        self.sep.setFrameShadow(QFrame.Plain)
-        self.sep.setStyleSheet("color:#3c3c3c;")
-        self.sep.setFixedWidth(1)
-        row2.addWidget(self.sep)
-        # 选择模式（布尔运算图标，互斥，默认多选）
-        self.sel_group = QButtonGroup(self)
-        self.sel_group.setExclusive(True)
-        self.btn_sel_multi = QToolButton()
-        self.btn_sel_multi.setIcon(icons.make_icon("multi"))
-        self.btn_sel_multi.setIconSize(icons.QSIZE)
-        self.btn_sel_multi.setCheckable(True)
-        self.btn_sel_multi.setChecked(True)
-        self.btn_sel_multi.setToolTip("多选：点击切换选中（默认）")
-        self.btn_sel_single = QToolButton()
-        self.btn_sel_single.setIcon(icons.make_icon("single"))
-        self.btn_sel_single.setIconSize(icons.QSIZE)
-        self.btn_sel_single.setCheckable(True)
-        self.btn_sel_single.setToolTip("单选：只选中一项")
-        self.btn_sel_sub = QToolButton()
-        self.btn_sel_sub.setIcon(icons.make_icon("subtract"))
-        self.btn_sel_sub.setIconSize(icons.QSIZE)
-        self.btn_sel_sub.setCheckable(True)
-        self.btn_sel_sub.setToolTip("减选：从选中移除")
-        for b in (self.btn_sel_multi, self.btn_sel_single, self.btn_sel_sub):
-            b.setProperty("bare", True)
-            self.sel_group.addButton(b)
-        row2.addWidget(self.btn_sel_multi)
-        row2.addWidget(self.btn_sel_single)
-        row2.addWidget(self.btn_sel_sub)
         row2.addStretch(1)
         self.btn_clear_sel = QToolButton(text="取消选中")
         self.btn_clear_sel.setToolTip("清除所有选中状态")
@@ -289,9 +255,6 @@ class MainWindow(QMainWindow):
         self.entry_view.delete_requested.connect(self.delete_selected)
         self.entry_view.clear_search_requested.connect(self._clear_search)
         self.entry_view.customContextMenuRequested.connect(self._entry_context_menu)
-        self.btn_sel_multi.toggled.connect(lambda on: on and self._set_sel_mode("multi"))
-        self.btn_sel_single.toggled.connect(lambda on: on and self._set_sel_mode("single"))
-        self.btn_sel_sub.toggled.connect(lambda on: on and self._set_sel_mode("subtract"))
         self.btn_compact.toggled.connect(self._on_compact_toggled)
         self.btn_clear_sel.clicked.connect(self._clear_selection)
         # 筛选方式菜单（漏斗）
@@ -1265,9 +1228,6 @@ class MainWindow(QMainWindow):
             return
         if self.library.dirty:
             self.save_library()
-
-    def _set_sel_mode(self, mode: str) -> None:
-        self.entry_view.set_selection_mode(mode)
 
     def _on_compact_toggled(self, on: bool) -> None:
         self.entry_view.set_layout("compact" if on else "split")
