@@ -286,7 +286,9 @@ def main() -> int:
         tmp_txt = d / "libs"
         shutil.copytree(ROOT / "txt", tmp_txt)
         from PySide6.QtCore import QSettings  # noqa: E402
-        QSettings("PromptLib", "PromptLibraryManager").setValue("last_folder", str(tmp_txt))
+        _cfg = QSettings("PromptLib", "PromptLibraryManager")
+        _saved = {k: _cfg.value(k) for k in ("last_folder", "recent_folders")}
+        _cfg.setValue("last_folder", str(tmp_txt))
         win = MainWindow()
         win.show()
         app.processEvents()
@@ -355,6 +357,13 @@ def main() -> int:
 
         win.close()
         app.processEvents()
+
+        # 恢复真实设置，避免测试污染用户配置
+        for _k, _v in _saved.items():
+            if _v is None:
+                _cfg.remove(_k)
+            else:
+                _cfg.setValue(_k, _v)
 
         # ---------- 8. Phase 4：CSV / 合并 / Tag 统计 / 差异 ----------
         print("[8] Phase 4：CSV / 合并 / Tag 统计 / 差异")

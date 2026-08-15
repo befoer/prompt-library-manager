@@ -60,10 +60,17 @@ SORT_MODES = [
 
 
 def default_txt_dir() -> Path | None:
-    """项目默认词库目录：打包后取 exe 旁的 txt，否则取项目根目录的 txt。"""
+    """项目默认词库目录：打包后依次尝试 exe 旁、exe 父级、项目根目录的 txt。"""
     cands: list[Path] = []
     if getattr(sys, "frozen", False):
-        cands.append(Path(sys.executable).resolve().parent / "txt")
+        exe_dir = Path(sys.executable).resolve().parent
+        # 单目录打包：exe 在 dist\PromptLibraryManager\，项目根目录是其上两级
+        cands += [
+            exe_dir / "txt",
+            exe_dir / "_internal" / "txt",
+            exe_dir.parent / "txt",
+            exe_dir.parent.parent / "txt",
+        ]
     cands.append(Path(__file__).resolve().parent.parent.parent / "txt")
     for c in cands:
         if c.is_dir():
