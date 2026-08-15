@@ -17,7 +17,7 @@ if exist PromptLibraryManager.spec del /q PromptLibraryManager.spec
 
 echo [3/3] 打包单文件 exe（含图标与离线词典数据，约 1-3 分钟）...
 python -m PyInstaller -w --onefile -n PromptLibraryManager ^
-    --icon icon.ico ^
+    --icon assets\icon.ico ^
     --add-data "icon.png;." ^
     --add-data "Tags\zh-CN.txt;Tags" ^
     --add-data "Tags\danbooru.csv;Tags" ^

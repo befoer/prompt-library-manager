@@ -219,16 +219,14 @@ class EntryListView(QListView):
         self.setFont(QFont("Consolas", 10))
         self.setItemDelegate(EntryDelegate(self))
         self.selection_mode = "multi"  # multi / single / subtract
+        # 选择模式改为手动处理点击，拖拽排序与自定义多选冲突，故禁用
+        self.setDragDropMode(QAbstractItemView.NoDragDrop)
+        self.setDragEnabled(False)
+        self.setAcceptDrops(False)
 
     def set_drag_enabled(self, enabled: bool) -> None:
-        """有筛选时禁用拖拽排序（避免拖拽与过滤行号冲突）。"""
-        if enabled:
-            self.setDragEnabled(True)
-            self.setDragDropMode(QAbstractItemView.InternalMove)
-            self.setDefaultDropAction(Qt.MoveAction)
-        else:
-            self.setDragEnabled(False)
-            self.setDragDropMode(QAbstractItemView.NoDragDrop)
+        """拖拽排序已禁用（与手动多选冲突），保留接口兼容。"""
+        return
 
     def set_selection_mode(self, mode: str) -> None:
         """multi=点击切换选中；single=只选一项；subtract=点击从选中移除。"""
@@ -269,23 +267,16 @@ class EntryListView(QListView):
                     self.setCurrentIndex(QModelIndex())
                 return  # 多选 / 减选：点击空白不清空
             if self.selection_mode == "single":
-                super().mousePressEvent(event)  # 默认：清空并选中该行
+                sel.select(idx, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+                self.setCurrentIndex(idx)
                 return
-            # 多选 / 减选：先记录选中行，再调用基类（记录按下位置供拖拽），最后手动修正
-            before = {i.row() for i in sel.selectedRows()}
-            row = idx.row()
-            super().mousePressEvent(event)
             if self.selection_mode == "multi":
-                if row in before:
-                    before.discard(row)  # 再点已选中的：仅移除它，不清空其它
+                if sel.isSelected(idx):
+                    sel.select(idx, QItemSelectionModel.Deselect | QItemSelectionModel.Rows)
                 else:
-                    before.add(row)
+                    sel.select(idx, QItemSelectionModel.Select | QItemSelectionModel.Rows)
             else:  # subtract
-                before.discard(row)
-            sel.clearSelection()
-            model = self.model()
-            for r in before:
-                sel.select(model.index(r, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+                sel.select(idx, QItemSelectionModel.Deselect | QItemSelectionModel.Rows)
             self.setCurrentIndex(idx)
             return
         super().mousePressEvent(event)

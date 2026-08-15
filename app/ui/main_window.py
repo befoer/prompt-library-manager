@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QFileSystemWatcher, QSettings, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QButtonGroup,
     QComboBox,
@@ -166,11 +167,18 @@ class MainWindow(QMainWindow):
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("搜索（不区分大小写，Ctrl+F 聚焦）…")
         self.search_edit.setClearButtonEnabled(True)
+        self.btn_filter = QToolButton()
+        self.btn_filter.setIcon(icons.make_static_icon("funnel"))
+        self.btn_filter.setIconSize(icons.QSIZE)
+        self.btn_filter.setPopupMode(QToolButton.InstantPopup)
+        self.btn_filter.setToolTip("筛选方式（包含 / 前缀 / 精确 / 正则）")
+        self.btn_filter.setProperty("bare", True)
         self.btn_random = QToolButton(text="🎲 随机")
         self.btn_random.setToolTip("随机抽取一条（Ctrl+R）")
         self.btn_new_entry = QToolButton(text="新增")
         self.btn_new_entry.setToolTip("在列表底部新增条目（Ctrl+N）")
         row1.addWidget(self.search_edit, 1)
+        row1.addWidget(self.btn_filter)
         row1.addWidget(self.btn_random)
         row1.addWidget(self.btn_new_entry)
         rlay.addLayout(row1)
@@ -184,27 +192,25 @@ class MainWindow(QMainWindow):
         self.btn_batch.setPopupMode(QToolButton.InstantPopup)
         self.btn_translate = QToolButton(text="翻译 ▾")
         self.btn_translate.setPopupMode(QToolButton.InstantPopup)
-        # 图标按钮（无容器，统一放翻译右边）
+        # 紧凑布局开关（紧挨翻译）
+        self.btn_compact = QToolButton(text="紧凑")
+        self.btn_compact.setCheckable(True)
+        self.btn_compact.setToolTip("紧凑布局：英文紧邻中文（如 Simple background | 朴素的背景）")
+        # 排序图标（无容器）
         self.btn_sort = QToolButton()
         self.btn_sort.setIcon(icons.make_static_icon("sort"))
         self.btn_sort.setIconSize(icons.QSIZE)
         self.btn_sort.setPopupMode(QToolButton.InstantPopup)
         self.btn_sort.setToolTip("排序（A→Z / 中文拼音 / 随机…）")
-        self.btn_filter = QToolButton()
-        self.btn_filter.setIcon(icons.make_static_icon("funnel"))
-        self.btn_filter.setIconSize(icons.QSIZE)
-        self.btn_filter.setPopupMode(QToolButton.InstantPopup)
-        self.btn_filter.setToolTip("筛选方式（包含 / 前缀 / 精确 / 正则）")
-        for b in (self.btn_sort, self.btn_filter):
-            b.setProperty("bare", True)
+        self.btn_sort.setProperty("bare", True)
         row2.addWidget(self.btn_import)
         row2.addWidget(self.btn_export)
         row2.addWidget(self.btn_dedupe)
         row2.addWidget(self.btn_batch)
         row2.addWidget(self.btn_translate)
+        row2.addWidget(self.btn_compact)
         row2.addWidget(self.btn_sort)
-        row2.addWidget(self.btn_filter)
-        # 细线隔开筛选与选择模式
+        # 细线隔开排序与选择模式
         self.sep = QFrame()
         self.sep.setFrameShape(QFrame.VLine)
         self.sep.setFrameShadow(QFrame.Plain)
@@ -236,11 +242,6 @@ class MainWindow(QMainWindow):
         row2.addWidget(self.btn_sel_multi)
         row2.addWidget(self.btn_sel_single)
         row2.addWidget(self.btn_sel_sub)
-        # 紧凑布局开关
-        self.btn_compact = QToolButton(text="紧凑")
-        self.btn_compact.setCheckable(True)
-        self.btn_compact.setToolTip("紧凑布局：英文紧邻中文（如 Simple background | 朴素的背景）")
-        row2.addWidget(self.btn_compact)
         row2.addStretch(1)
         self.btn_clear_sel = QToolButton(text="取消选中")
         self.btn_clear_sel.setToolTip("清除所有选中状态")
@@ -1256,8 +1257,13 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"已复制 {len(texts)} 条到剪贴板", 3000)
 
     def _autosave(self) -> None:
-        """每步操作后自动保存（仅在有未保存修改时写盘）。"""
-        if self.library is not None and self.library.dirty and self.library.path is not None:
+        """每步操作后自动保存（编辑中暂缓，避免打断输入）。"""
+        if self.library is None or self.library.path is None:
+            return
+        if self.entry_view.state() == QAbstractItemView.EditingState:
+            self._autosave_timer.start()  # 正在编辑，稍后再试
+            return
+        if self.library.dirty:
             self.save_library()
 
     def _set_sel_mode(self, mode: str) -> None:
