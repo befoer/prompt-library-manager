@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import QItemSelectionModel, QModelIndex, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QLineEdit,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate,
 )
 
+from app import resources
 from app.core.model import PromptEntry
 from app.ui.entry_model import ENTRY_ROLE
 
@@ -61,12 +62,33 @@ def checkbox_rect_for_rect(r: QRect) -> QRect:
     return QRect(r.left() + CHECKBOX_X, r.center().y() - size // 2, size, size)
 
 
+def translate_button_rect(rect: QRect, text: str, layout: str, font) -> QRect:
+    """未翻译条目中文栏起始处的翻译按钮位置（绘制与点击检测共用）。"""
+    total = rect.adjusted(TEXT_X, 0, -4, 0)
+    size = 14
+    y = rect.center().y() - size // 2
+    if layout == "compact":
+        probe = QFont(font)
+        probe.setPointSizeF(10.5)
+        en_w = min(QFontMetrics(probe).horizontalAdvance(text), int(total.width() * 0.6))
+        sep_w = QFontMetrics(probe).horizontalAdvance(" | ")
+        x = total.left() + en_w + sep_w + 2
+    else:
+        left_w = int(total.width() * SPLIT_RATIO) - DIVIDER_GAP // 2
+        x = total.left() + left_w + DIVIDER_GAP + 2
+    return QRect(int(x), int(y), size, size)
+
+
 class EntryDelegate(QStyledItemDelegate):
     """绘制：状态圆点 + 复选框（镜像选中）+ 英文 + 中文翻译（分栏 / 紧凑两种布局）。"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.layout = "split"  # "split" = 分栏, "compact" = 紧凑
+        self.translate_icon = None
+        p = resources.resource_path("翻译.svg")
+        if p is not None:
+            self.translate_icon = QIcon(str(p))
 
     def sizeHint(self, option, index) -> QSize:
         return QSize(0, ROW_H)
@@ -153,6 +175,11 @@ class EntryDelegate(QStyledItemDelegate):
                 self._draw_line(painter, option, right_rect, zh, 10, zh_color,
                                 family="Microsoft YaHei UI")
 
+        # 未翻译：中文栏起始处显示翻译按钮
+        if entry is not None and not entry.translation and self.translate_icon is not None:
+            btn_rect = translate_button_rect(option.rect, text, self.layout, option.font)
+            self.translate_icon.paint(painter, btn_rect)
+
         painter.restore()
 
     @staticmethod
@@ -199,6 +226,7 @@ class EntryListView(QListView):
 
     delete_requested = Signal()
     clear_search_requested = Signal()
+    translate_requested = Signal(str)   # entry_id
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -257,6 +285,15 @@ class EntryListView(QListView):
             sel = self.selectionModel()
             if not idx.isValid():
                 return  # 点击空白处不清空选择
+            entry = idx.data(ENTRY_ROLE)
+            text = idx.data(Qt.DisplayRole) or ""
+            # 点击未翻译条目的翻译按钮 → 翻译该条
+            if entry is not None and not entry.translation:
+                btn = translate_button_rect(self.visualRect(idx), text,
+                                            self.itemDelegate().layout, self.font())
+                if btn.contains(event.pos()):
+                    self.translate_requested.emit(entry.id)
+                    return
             # 多选：点击切换选中（再点已选中的 = 取消该条）
             if sel.isSelected(idx):
                 sel.select(idx, QItemSelectionModel.Deselect | QItemSelectionModel.Rows)
@@ -266,6 +303,12 @@ class EntryListView(QListView):
             sel.setCurrentIndex(idx, QItemSelectionModel.NoUpdate)
             return
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        # 禁用按住左键拖动的框选/拖选（快速点击会误选一片），选择只由 mousePressEvent 控制
+        if event.buttons() & Qt.LeftButton:
+            return
+        super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
         # 选择已在 mousePressEvent 处理，这里不交给默认（避免默认释放又改选择）

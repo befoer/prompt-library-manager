@@ -5,8 +5,8 @@ import sys
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QFileSystemWatcher, QSettings, Qt, QTimer
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence
+from PySide6.QtCore import QFileSystemWatcher, QPoint, QSettings, Qt, QTimer
+from PySide6.QtGui import QAction, QActionGroup, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -38,6 +38,7 @@ from app.core.commands import (
 )
 from app.core.dictionary import OfflineDictionary, default_tags_dirs
 from app.core.model import Library
+from app import resources
 from app.ui import icons
 from app.ui.dialogs import DiffDialog, RandomBatchDialog, RandomPickDialog, confirm
 from app.ui.entry_model import EntryListModel, MODES
@@ -120,6 +121,12 @@ class MainWindow(QMainWindow):
         self._autosave_timer.setInterval(600)
         self._autosave_timer.timeout.connect(self._autosave)
 
+        self._scroll_timer = QTimer(self)
+        self._scroll_timer.setSingleShot(True)
+        self._scroll_timer.setInterval(400)
+        self._scroll_timer.timeout.connect(self._translate_visible)
+        self._lazy_translate_active = False
+
         self._watcher = QFileSystemWatcher(self)
         self._watcher.fileChanged.connect(self._on_watch_event)
         self._watcher.directoryChanged.connect(self._on_watch_event)
@@ -188,8 +195,13 @@ class MainWindow(QMainWindow):
         self.btn_dedupe = QToolButton(text="去重")
         self.btn_batch = QToolButton(text="批量 ▾")
         self.btn_batch.setPopupMode(QToolButton.InstantPopup)
-        self.btn_translate = QToolButton(text="翻译 ▾")
-        self.btn_translate.setPopupMode(QToolButton.InstantPopup)
+        self.btn_translate = QToolButton()
+        _svg = resources.resource_path("翻译.svg")
+        if _svg is not None:
+            self.btn_translate.setIcon(QIcon(str(_svg)))
+        self.btn_translate.setIconSize(icons.QSIZE)
+        self.btn_translate.setToolTip("翻译当前文件（仅翻译可见部分，滚动时继续）")
+        self.btn_translate.setProperty("bare", True)
         # 紧凑布局开关（紧挨翻译）
         self.btn_compact = QToolButton(text="紧凑")
         self.btn_compact.setCheckable(True)
@@ -252,9 +264,12 @@ class MainWindow(QMainWindow):
         self.btn_dedupe.clicked.connect(self.dedupe)
         self.btn_delete.clicked.connect(self.delete_selected)
         self.btn_copy_sel.clicked.connect(self.copy_selected)
+        self.btn_translate.clicked.connect(self._translate_file_lazy)
         self.entry_view.delete_requested.connect(self.delete_selected)
         self.entry_view.clear_search_requested.connect(self._clear_search)
+        self.entry_view.translate_requested.connect(self._translate_entry)
         self.entry_view.customContextMenuRequested.connect(self._entry_context_menu)
+        self.entry_view.verticalScrollBar().valueChanged.connect(self._on_scroll)
         self.btn_compact.toggled.connect(self._on_compact_toggled)
         self.btn_clear_sel.clicked.connect(self._clear_selection)
         # 筛选方式菜单（漏斗）
@@ -354,16 +369,6 @@ class MainWindow(QMainWindow):
         a_tr_cfg = QAction("翻译设置…", self)
         a_tr_cfg.triggered.connect(self.open_translate_settings)
 
-        translate_menu = QMenu("翻译", self)
-        for a in (a_offline, a_ai_sel, a_ai_all):
-            translate_menu.addAction(a)
-        translate_menu.addSeparator()
-        translate_menu.addAction(a_edit_tr)
-        translate_menu.addAction(a_clear_tr)
-        translate_menu.addSeparator()
-        translate_menu.addAction(a_tr_cfg)
-        self.btn_translate.setMenu(translate_menu)
-
         m_translate = mb.addMenu("翻译(&L)")
         for a in (a_offline, a_ai_sel, a_ai_all):
             m_translate.addAction(a)
@@ -386,6 +391,7 @@ class MainWindow(QMainWindow):
     def _bind_library(self, lib: Library) -> None:
         self._bound_lib = lib
         self.library = lib
+        self._lazy_translate_active = False
         self.model = EntryListModel(lib, self)
         self.entry_view.setModel(self.model)
         self.entry_view.set_drag_enabled(not self.model.query)
@@ -833,6 +839,96 @@ class MainWindow(QMainWindow):
             )
             self._flush_sidecar()
         self.statusBar().showMessage(f"离线翻译 {len(changes)} 条（词典命中）", 3000)
+
+    def _translate_file_lazy(self) -> None:
+        """点击工具栏翻译图标：翻译当前可见部分，滚动时继续。"""
+        if self.library is None or self.model is None:
+            QMessageBox.information(self, "翻译", "请先打开一个词库。")
+            return
+        self._lazy_translate_active = True
+        self.statusBar().showMessage("懒加载翻译已启动：翻译可见部分，滚动时继续", 3000)
+        self._translate_visible()
+
+    def _on_scroll(self, _value: int) -> None:
+        if self._lazy_translate_active:
+            self._scroll_timer.start()
+
+    def _visible_rows(self) -> tuple[int, int]:
+        view = self.entry_view
+        model = self.model
+        if model is None or model.rowCount() == 0:
+            return (0, 0)
+        vp = view.viewport()
+        top = view.indexAt(QPoint(10, 10))
+        bottom = view.indexAt(QPoint(10, max(0, vp.height() - 10)))
+        top_row = top.row() if top.isValid() else 0
+        bottom_row = bottom.row() if bottom.isValid() else model.rowCount() - 1
+        return (top_row, bottom_row)
+
+    def _translate_visible(self) -> None:
+        if self.model is None or self.library is None:
+            return
+        top, bottom = self._visible_rows()
+        bottom = min(bottom + 50, self.model.rowCount() - 1)  # 下方多带一小部分
+        texts = []
+        for r in range(top, bottom + 1):
+            e = self.model.entry_at(r)
+            if e is not None and not e.translation:
+                texts.append(e.text)
+        self._translate_silent(list(dict.fromkeys(texts)))
+
+    def _translate_entry(self, eid: str) -> None:
+        """内联翻译按钮：翻译单个 tag。"""
+        if self.library is None:
+            return
+        e = self.library.get(eid)
+        if e is None or e.translation:
+            return
+        self._translate_silent([e.text])
+
+    def _translate_silent(self, texts: list[str]) -> None:
+        """静默翻译一批（先离线词典/缓存，剩余走 AI，不弹进度框）。"""
+        if not texts or self.library is None:
+            return
+        wanted = set(texts)
+        changes = []
+        ai_todo = []
+        for e in self.library.entries:
+            if e.text not in wanted or e.translation:
+                continue
+            got = self.cache.get(e.text) if self.ai_cfg.use_cache else None
+            if got is None and self.dictionary.loaded:
+                got = self.dictionary.translate_entry(e.text)
+            if got:
+                changes.append((e.id, e.translation, got))
+            else:
+                ai_todo.append(e.text)
+        if changes:
+            self.library.undo_stack.push(
+                SetTranslationsCommand(self.library, changes, f"离线翻译 {len(changes)} 条")
+            )
+            self._flush_sidecar()
+            self._update_stats()
+        ai_todo = list(dict.fromkeys(ai_todo))
+        if not ai_todo:
+            if changes:
+                self.statusBar().showMessage(f"已翻译 {len(changes)} 条", 3000)
+            return
+        if not self.ai_cfg.enabled:
+            self.statusBar().showMessage(
+                f"离线命中 {len(changes)} 条；{len(ai_todo)} 条需 AI（未启用）", 5000
+            )
+            return
+        if self._translate_worker is not None:
+            return
+        worker = TranslateWorker(ai_todo, self.ai_cfg, self.cache, self.dictionary, parent=self)
+        self._translate_worker = worker
+        self._translate_ids = {}
+        for e in self.library.entries:
+            self._translate_ids.setdefault(e.text, []).append(e.id)
+        worker.finished.connect(self._on_translate_finished)
+        threading.Thread(target=worker.run, daemon=True).start()
+        self.statusBar().showMessage(f"AI 翻译中… {len(ai_todo)} 条", 3000)
 
     def edit_translation(self) -> None:
         if self.library is None or self.model is None:
