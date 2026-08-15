@@ -52,3 +52,19 @@ def library_replace_changes(lib, find: str, repl: str) -> list[tuple]:
         if new != e.text:
             changes.append((e.id, e.text, new, e.translation_dirty))
     return changes
+
+
+def merge_lines(lists: list[list[str]], dedupe: bool) -> list[str]:
+    """合并多个词库的行列表。去重时保留首次出现的条目。"""
+    out: list[str] = []
+    if not dedupe:
+        for ls in lists:
+            out.extend(ls)
+        return out
+    seen: set[str] = set()
+    for ls in lists:
+        for ln in ls:
+            if ln not in seen:
+                seen.add(ln)
+                out.append(ln)
+    return out

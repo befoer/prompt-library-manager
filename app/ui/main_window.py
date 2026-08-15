@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core import io, library_ops
+from app.core import csv_ops, io, library_ops
 from app.core.ai_translate import AIConfig, TranslateWorker, TranslationCache
 from app.core.commands import (
     AddEntriesCommand,
@@ -40,6 +40,7 @@ from app.core.model import Library
 from app.ui.dialogs import DiffDialog, RandomBatchDialog, RandomPickDialog, confirm
 from app.ui.entry_model import EntryListModel, MODES
 from app.ui.entry_view import EntryListView
+from app.ui.phase4_dialogs import CompareDialog, MergeDialog, TagStatsDialog
 from app.ui.sidebar import SidebarPanel
 from app.ui.translate_dialogs import (
     BatchReplaceDialog,
@@ -236,8 +237,9 @@ class MainWindow(QMainWindow):
 
         act(m_file, "打开词库文件夹…", "Ctrl+Shift+O", self._choose_folder)
         act(m_file, "打开 TXT…", "Ctrl+O", self.open_file_dialog)
-        act(m_file, "导入 TXT…", "Ctrl+I", self.import_txt)
+        act(m_file, "导入 TXT / CSV…", "Ctrl+I", self.import_txt)
         act(m_file, "导出 TXT…", "Ctrl+E", self.export_txt)
+        act(m_file, "导出 CSV（英中对照）…", None, self.export_csv)
         m_file.addSeparator()
         act(m_file, "退出", "Ctrl+Q", self.close)
 
@@ -262,8 +264,14 @@ class MainWindow(QMainWindow):
         batch_menu.addAction("批量替换…", self.batch_replace)
         batch_menu.addAction("复制到其他词库…", lambda: self.move_copy_entries())
         batch_menu.addAction("移动到其他词库…", lambda: self.move_copy_entries(move=True))
+        batch_menu.addAction("词库合并…", self.merge_libraries)
+        batch_menu.addAction("词库差异比较…", self.compare_libraries)
         self.btn_batch.setMenu(batch_menu)
         m_tool.addMenu(batch_menu)
+
+        act(m_tool, "Tag 统计…", None, self.tag_stats)
+        act(m_tool, "词库合并…", None, self.merge_libraries)
+        act(m_tool, "词库差异比较…", None, self.compare_libraries)
 
         m_translate = mb.addMenu("翻译(&L)")
         m_translate.addAction("离线词典翻译选中", lambda: self.translate_selected(ai=False))
@@ -473,9 +481,7 @@ class MainWindow(QMainWindow):
         if not path:
             return
         if path.lower().endswith(".csv"):
-            QMessageBox.information(
-                self, "提示", "CSV 导入将在后续阶段（Phase 4）提供，请先选择 TXT 文件。"
-            )
+            self.import_csv(Path(path))
             return
         try:
             lines, enc = io.read_lines(Path(path))
@@ -494,6 +500,54 @@ class MainWindow(QMainWindow):
             return
         self.library.undo_stack.push(AddEntriesCommand(self.library, lines, None, "导入 TXT"))
         self.statusBar().showMessage(f"已导入 {len(lines)} 条（Ctrl+Z 可撤销）", 3000)
+
+    def import_csv(self, path: Path) -> None:
+        """导入英中对照 CSV：已有条目更新翻译，没有的追加。"""
+        if self.library is None:
+            QMessageBox.information(self, "提示", "请先打开一个词库。")
+            return
+        try:
+            pairs = csv_ops.read_translation_csv(path)
+        except OSError as e:
+            QMessageBox.critical(self, "导入失败", str(e))
+            return
+        if not pairs:
+            QMessageBox.information(self, "导入 CSV", "该 CSV 没有可导入的内容。")
+            return
+        if not confirm(
+            self,
+            "导入 CSV（英中对照）",
+            f"将导入 {len(pairs)} 对英中对照：\n"
+            "- 已存在的条目：更新中文翻译\n"
+            "- 不存在的条目：作为新条目追加（可 Ctrl+Z 撤销）",
+        ):
+            return
+        from app.core.commands import ImportCsvCommand
+
+        self.library.undo_stack.push(ImportCsvCommand(self.library, pairs))
+        self._flush_sidecar()
+        self.statusBar().showMessage(f"已导入 {len(pairs)} 对英中对照（Ctrl+Z 可撤销）", 3000)
+
+    def export_csv(self) -> None:
+        """导出英中对照 CSV（全条目，含未翻译）。"""
+        if self.library is None:
+            QMessageBox.information(self, "提示", "请先打开一个词库。")
+            return
+        default = (self.library.path.stem if self.library.path else "export") + ".csv"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出 CSV（英中对照）", str(Path(default)), "CSV 文件 (*.csv)"
+        )
+        if not path:
+            return
+        try:
+            csv_ops.write_translation_csv(
+                Path(path), [(e.text, e.translation) for e in self.library.entries]
+            )
+        except OSError as e:
+            QMessageBox.critical(self, "导出失败", str(e))
+            return
+        n = len(self.library.entries)
+        self.statusBar().showMessage(f"已导出 {n} 条英中对照 → {path}", 4000)
 
     def export_txt(self) -> None:
         if self.library is None:
@@ -837,6 +891,92 @@ class MainWindow(QMainWindow):
             )
         else:
             self.statusBar().showMessage(f"已复制 {added} 条 → {Path(target_path).name}", 4000)
+
+    # ================= Phase 4：统计 / 合并 / 差异比较 =================
+
+    def folder_txt_files(self) -> list[tuple[str, str]]:
+        if self.current_folder is None:
+            return []
+        return [
+            (p.name, str(p))
+            for p in sorted(self.current_folder.glob("*.txt"), key=lambda x: x.name.casefold())
+        ]
+
+    def tag_stats(self) -> None:
+        if self.library is None:
+            QMessageBox.information(self, "提示", "请先打开一个词库。")
+            return
+        TagStatsDialog(self.library, self).exec()
+
+    def merge_libraries(self) -> None:
+        if self.current_folder is None:
+            QMessageBox.information(self, "词库合并", "请先打开词库文件夹。")
+            return
+        cur = self.library.path.resolve() if self.library and self.library.path else None
+        others = [
+            (n, p) for n, p in self.folder_txt_files() if cur is None or Path(p).resolve() != cur
+        ]
+        if not others:
+            QMessageBox.information(self, "词库合并", "当前文件夹没有其他词库可合并。")
+            return
+        dlg = MergeDialog(others, self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        paths = dlg.selected_paths()
+        if not paths:
+            QMessageBox.information(self, "词库合并", "请至少选择一个词库。")
+            return
+        lists: list[list[str]] = []
+        for p in paths:
+            try:
+                lists.append(io.read_lines(Path(p))[0])
+            except OSError as e:
+                QMessageBox.critical(self, "读取失败", f"{Path(p).name}：\n{e}")
+                return
+        target_current = not dlg.to_new_file()
+        if dlg.dedupe() and target_current:
+            lists.insert(0, [e.text for e in self.library.entries])
+        merged = library_ops.merge_lines(lists, dlg.dedupe())
+        if target_current:
+            existing = {e.text for e in self.library.entries}
+            merged = [ln for ln in merged if ln not in existing]
+        if not merged:
+            QMessageBox.information(self, "词库合并", "没有可合并的新条目。")
+            return
+        if target_current:
+            if not confirm(
+                self,
+                "词库合并",
+                f"将向当前词库追加 {len(merged)} 条（来自 {len(paths)} 个词库）。\n可 Ctrl+Z 撤销。",
+            ):
+                return
+            self.library.undo_stack.push(
+                AddEntriesCommand(self.library, merged, None, "词库合并")
+            )
+            self.statusBar().showMessage(f"已合并 {len(merged)} 条（Ctrl+Z 可撤销）", 3000)
+        else:
+            path, _ = QFileDialog.getSaveFileName(
+                self, "合并另存为", "merged.txt", "文本文件 (*.txt)"
+            )
+            if not path:
+                return
+            try:
+                io.write_text_atomic(Path(path), merged, encoding="utf-8")
+            except OSError as e:
+                QMessageBox.critical(self, "保存失败", str(e))
+                return
+            self.statusBar().showMessage(f"已合并 {len(merged)} 条 → {path}", 4000)
+
+    def compare_libraries(self) -> None:
+        if self.current_folder is None:
+            QMessageBox.information(self, "词库差异比较", "请先打开词库文件夹。")
+            return
+        files = self.folder_txt_files()
+        if len(files) < 2:
+            QMessageBox.information(self, "词库差异比较", "文件夹中至少需要两个词库。")
+            return
+        cur = str(self.library.path) if self.library and self.library.path else None
+        CompareDialog(files, cur, self).exec()
 
     # ================= 词库文件管理 =================
 

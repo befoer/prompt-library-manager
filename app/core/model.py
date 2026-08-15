@@ -119,6 +119,12 @@ class Library(QObject):
                 return e
         return None
 
+    def find_by_text(self, text: str) -> PromptEntry | None:
+        for e in self.entries:
+            if e.text == text:
+                return e
+        return None
+
     # ---------- 未保存标记 ----------
 
     def _invalidate_fp(self) -> None:
@@ -202,19 +208,66 @@ class Library(QObject):
     # ---------- 翻译 ----------
 
     def set_translation(self, entry_id: str, chinese: str) -> bool:
-        """设置/清除翻译。翻译只作为管理信息，不影响 TXT 导出。"""
-        for e in self.entries:
-            if e.id == entry_id:
-                if e.translation == chinese and not e.translation_dirty:
-                    return False
-                e.translation = chinese
-                e.translation_dirty = False
-                self._sidecar_dirty = True
-                self.entry_updated.emit(entry_id)
-                self.meta_changed.emit()
-                self.translations_changed.emit()
-                return True
-        return False
+        """设置/清除翻译（单条）。翻译只作为管理信息，不影响 TXT 导出。"""
+        entry = self.get(entry_id)
+        if entry is None:
+            return False
+        if entry.translation == chinese and not entry.translation_dirty:
+            return False
+        entry.translation = chinese
+        entry.translation_dirty = False
+        self._sidecar_dirty = True
+        self.entry_updated.emit(entry_id)
+        self.meta_changed.emit()
+        self.translations_changed.emit()
+        return True
+
+    def apply_translations(self, changes: list[tuple[str, str]]) -> None:
+        """批量设置翻译 changes=[(entry_id, chinese)]，一次性发信号（避免大库逐条 O(n)）。"""
+        touched: list[str] = []
+        for eid, zh in changes:
+            e = self.get(eid)
+            if e is None:
+                continue
+            if e.translation == zh and not e.translation_dirty:
+                continue
+            e.translation = zh
+            e.translation_dirty = False
+            touched.append(eid)
+        if not touched:
+            return
+        self._sidecar_dirty = True
+        self.meta_changed.emit()
+        self.translations_changed.emit()
+        if len(touched) <= 50:
+            for eid in touched:
+                self.entry_updated.emit(eid)
+        else:
+            self.structure_changed.emit()  # 大批量：整体重建一次比逐行刷新更快
+
+    def import_pairs(self, pairs: list[tuple[str, str]]) -> dict:
+        """批量导入英中对照（CSV）。返回 {"added": [PromptEntry], "changed": [(id, old, new)]}。
+        已有同文本条目 → 只更新翻译；没有 → 追加新条目。"""
+        by_text = {e.text: e for e in self.entries}
+        new_entries: list[PromptEntry] = []
+        changed: list[tuple[str, str, str]] = []
+        for en, zh in pairs:
+            entry = by_text.get(en)
+            if entry is None:
+                entry = PromptEntry(en)
+                by_text[en] = entry
+                new_entries.append(entry)
+            if zh and entry.translation != zh:
+                changed.append((entry.id, entry.translation, zh))
+        if new_entries:
+            self.entries.extend(new_entries)
+            self._invalidate_fp()
+            self._refresh_dirty()
+            self.structure_changed.emit()
+            self.meta_changed.emit()
+        if changed:
+            self.apply_translations([(eid, new) for eid, _o, new in changed])
+        return {"added": new_entries, "changed": changed}
 
     def translation_state(self, entry: PromptEntry) -> str:
         """翻译状态：untranslated / translated / stale。"""

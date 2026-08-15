@@ -90,12 +90,38 @@ class SetTranslationsCommand(QUndoCommand):
         self.changes = [(eid, old, new) for eid, old, new in changes if old != new]
 
     def redo(self) -> None:
-        for eid, _old, new in self.changes:
-            self.lib.set_translation(eid, new)
+        self.lib.apply_translations([(eid, new) for eid, _old, new in self.changes])
 
     def undo(self) -> None:
-        for eid, old, _new in self.changes:
-            self.lib.set_translation(eid, old)
+        self.lib.apply_translations([(eid, old) for eid, old, _new in self.changes])
+
+
+class ImportCsvCommand(QUndoCommand):
+    """导入英中对照 CSV：已有条目更新翻译，没有的追加。一次撤销。"""
+
+    def __init__(self, lib: Library, pairs: list[tuple[str, str]], label: str = "导入 CSV"):
+        super().__init__(label)
+        self.lib = lib
+        self.pairs = list(pairs)
+        self.added: list[PromptEntry] = []
+        self.positions: list[int] = []
+        self.changes: list[tuple[str, str, str]] = []
+        self._done = False
+
+    def redo(self) -> None:
+        if not self._done:
+            self._done = True
+            info = self.lib.import_pairs(self.pairs)
+            self.added = info["added"]
+            self.changes = info["changed"]
+            self.positions = [self.lib.entries.index(e) for e in self.added]
+        else:
+            self.lib.restore_entries(list(zip(self.positions, self.added)))
+            self.lib.apply_translations([(eid, new) for eid, _o, new in self.changes])
+
+    def undo(self) -> None:
+        self.lib.remove_entries([e.id for e in self.added])
+        self.lib.apply_translations([(eid, old) for eid, old, _n in self.changes])
 
 
 class BatchReplaceCommand(QUndoCommand):

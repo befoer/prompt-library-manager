@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import codecs
 import os
+import time
 from pathlib import Path
 
 import chardet
@@ -61,7 +62,11 @@ def read_lines(path: Path) -> tuple[list[str], str]:
 
 
 def write_text_atomic(path: Path, lines: list[str], encoding: str = "utf-8") -> None:
-    """原子写入 TXT。导出/保存默认 UTF-8（无 BOM）。"""
+    """原子写入 TXT。导出/保存默认 UTF-8（无 BOM）。
+
+    Windows 上目标文件可能被瞬时占用（杀软扫描 / 同步工具 / 句柄释放延迟），
+    遇到 PermissionError 时自动重试几次，避免写入失败。
+    """
     text = "\n".join(lines)
     if lines:
         text += "\n"
@@ -69,7 +74,15 @@ def write_text_atomic(path: Path, lines: list[str], encoding: str = "utf-8") -> 
     tmp = path.with_name(path.name + ".tmp")
     try:
         tmp.write_bytes(data)
-        os.replace(tmp, path)
+        last_err: OSError | None = None
+        for attempt in range(6):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError as e:
+                last_err = e
+                time.sleep(0.06 * (attempt + 1))
+        raise last_err  # type: ignore[misc]
     finally:
         if tmp.exists():
             try:

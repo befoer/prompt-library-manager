@@ -358,8 +358,52 @@ def main() -> int:
         win.close()
         app.processEvents()
 
-    print(f"\n结果：{PASS} 通过，{FAIL} 失败")
-    return 0 if FAIL == 0 else 1
+        # ---------- 8. Phase 4：CSV / 合并 / Tag 统计 / 差异 ----------
+        print("[8] Phase 4：CSV / 合并 / Tag 统计 / 差异")
+        from app.core import csv_ops  # noqa: E402
+        from app.core.commands import ImportCsvCommand  # noqa: E402
+        from app.core.library_ops import merge_lines  # noqa: E402
+        from app.ui.phase4_dialogs import compute_diff, compute_tag_stats  # noqa: E402
+
+        csvp = d / "pairs.csv"
+        csv_ops.write_translation_csv(csvp, [("a", "甲"), ("b", "乙"), ("新词", "新义")])
+        pairs = csv_ops.read_translation_csv(csvp)
+        check("CSV 往返", pairs == [("a", "甲"), ("b", "乙"), ("新词", "新义")])
+
+        lib4 = Library.open(d / "utf8.txt")  # a, b, c
+        lib4.undo_stack.push(ImportCsvCommand(lib4, pairs))
+        check("CSV 导入更新翻译", lib4.find_by_text("a").translation == "甲")
+        check("CSV 导入追加条目",
+              len(lib4.entries) == 4 and lib4.entries[-1].text == "新词")
+        check("CSV 新条目带翻译", lib4.entries[-1].translation == "新义")
+        lib4.undo_stack.undo()
+        # 撤销后恢复导入前的状态（此前旁车文件已为 a 恢复过"旧翻译"）
+        check("撤销 CSV 导入",
+              len(lib4.entries) == 3 and lib4.find_by_text("a").translation == "旧翻译")
+
+        check("合并去重", merge_lines([["x", "y"], ["y", "z"]], dedupe=True) == ["x", "y", "z"])
+        check("合并不去重", merge_lines([["x", "y"], ["y", "z"]], dedupe=False) == ["x", "y", "y", "z"])
+
+        lib5 = Library.open(d / "utf8.txt")  # a, b, c
+        lib5.undo_stack.push(
+            AddEntriesCommand(lib5, ["fantasy room, messy room", "fantasy room"])
+        )
+        stats = dict(compute_tag_stats(lib5))
+        check("Tag 统计", stats.get("fantasy room") == 2 and stats.get("messy room") == 1)
+
+        added, removed, diff_lines = compute_diff(["a", "b", "c"], ["a", "x", "c", "d"])
+        check("差异统计", added == 2 and removed == 1)
+        check("差异行",
+              any(ln.startswith("+ x") for ln in diff_lines)
+              and any(ln.startswith("- b") for ln in diff_lines))
+
+        big_old = [f"line{i}" for i in range(60000)]
+        big_new = [f"line{i}" for i in range(1, 60001)]
+        a2, r2, dl2 = compute_diff(big_old, big_new)
+        check("大库集合统计", a2 == 1 and r2 == 1 and dl2 == [])
+
+        print("\n结果：%d 通过，%d 失败" % (PASS, FAIL))
+        return 0 if FAIL == 0 else 1
 
 
 if __name__ == "__main__":
