@@ -17,6 +17,8 @@ from app.core.model import Library, PromptEntry
 
 MIME_ENTRY_IDS = "application/x-promptlib-ids"
 
+ENTRY_ROLE = Qt.UserRole + 1  # data() 返回 PromptEntry 对象（delegate 自绘用）
+
 MODES = [
     ("contains", "包含"),
     ("prefix", "前缀"),
@@ -109,10 +111,19 @@ class EntryListModel(QAbstractListModel):
         if not index.isValid():
             return None
         entry = self.entry_at(index.row())
+        if role == ENTRY_ROLE:
+            return entry
         if role == Qt.DisplayRole:
             return entry.text
         if role == Qt.ToolTipRole:
-            return entry.text
+            tip = entry.text
+            if entry.translation:
+                tip += f"\n{entry.translation}"
+                if entry.translation_dirty:
+                    tip += "\n（原文已修改，翻译需更新）"
+            else:
+                tip += "\n（未翻译）"
+            return tip
         return None
 
     def setData(self, index: QModelIndex, value, role: int = Qt.EditRole) -> bool:

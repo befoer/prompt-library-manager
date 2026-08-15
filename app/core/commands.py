@@ -79,3 +79,41 @@ class ReorderCommand(QUndoCommand):
 
     def undo(self) -> None:
         self.lib.apply_order(self.before)
+
+
+class SetTranslationsCommand(QUndoCommand):
+    """批量设置/清除翻译（一次撤销）。changes = [(entry_id, old, new), ...]"""
+
+    def __init__(self, lib: Library, changes: list[tuple[str, str, str]], label: str = "设置翻译"):
+        super().__init__(label)
+        self.lib = lib
+        self.changes = [(eid, old, new) for eid, old, new in changes if old != new]
+
+    def redo(self) -> None:
+        for eid, _old, new in self.changes:
+            self.lib.set_translation(eid, new)
+
+    def undo(self) -> None:
+        for eid, old, _new in self.changes:
+            self.lib.set_translation(eid, old)
+
+
+class BatchReplaceCommand(QUndoCommand):
+    """批量替换：整次替换作为一个撤销步骤。
+    changes = [(entry_id, old_text, new_text, old_translation_dirty), ...]
+    """
+
+    def __init__(self, lib: Library, changes: list[tuple], find: str, repl: str):
+        super().__init__(f"批量替换 {len(changes)} 处")
+        self.lib = lib
+        self.changes = changes
+        self.find = find
+        self.repl = repl
+
+    def redo(self) -> None:
+        for eid, _old, new, _td in self.changes:
+            self.lib.update_entry(eid, new)
+
+    def undo(self) -> None:
+        for eid, old, _new, td in reversed(self.changes):
+            self.lib.update_entry(eid, old, restore_tdirty=td)

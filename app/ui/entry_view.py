@@ -1,4 +1,4 @@
-"""条目列表视图 + 自绘 delegate（复选框 / 行内编辑 / 拖拽排序）。"""
+"""条目列表视图 + 自绘 delegate（状态圆点 / 复选框 / 双语双行 / 行内编辑 / 拖拽排序）。"""
 from __future__ import annotations
 
 from PySide6.QtCore import QItemSelectionModel, QModelIndex, QRect, QSize, Qt, Signal
@@ -12,45 +12,101 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate,
 )
 
-CHECKBOX_W = 18
-TEXT_INDENT = 8
+from app.core.model import PromptEntry
+from app.ui.entry_model import ENTRY_ROLE
+
+ROW_H = 26          # 单行模式
+ROW_H_BI = 40       # 双语双行模式
+DOT_X = 6
+DOT_SIZE = 8
+CHECKBOX_X = 18
+TEXT_X = 38
+
+STATE_COLORS = {
+    "untranslated": "#5f5f5f",
+    "translated": "#4ec9b0",
+    "stale": "#d19a66",
+}
 
 
 def checkbox_rect_for_rect(r: QRect) -> QRect:
     size = 14
-    return QRect(r.left() + 4, r.center().y() - size // 2, size, size)
+    return QRect(r.left() + CHECKBOX_X, r.center().y() - size // 2, size, size)
 
 
 class EntryDelegate(QStyledItemDelegate):
-    """绘制：复选框（镜像选中状态）+ 文本（超长省略）。"""
+    """绘制：状态圆点 + 复选框（镜像选中）+ 英文文本（+ 中文翻译第二行）。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.show_translation = True
 
     def sizeHint(self, option, index) -> QSize:
-        return QSize(0, 26)
+        return QSize(0, ROW_H_BI if self.show_translation else ROW_H)
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         painter.save()
         view = self.parent()
+        entry: PromptEntry | None = index.data(ENTRY_ROLE) if index.isValid() else None
         selected = bool(view is not None and view.selectionModel()
                         and view.selectionModel().isSelected(index))
+
         if option.state & QStyle.State_Selected:
             painter.fillRect(option.rect, QColor("#094771"))
         elif option.state & QStyle.State_MouseOver:
             painter.fillRect(option.rect, QColor("#2a2d2e"))
 
+        # 状态圆点
+        if entry is not None:
+            state = "untranslated"
+            if entry.translation:
+                state = "stale" if entry.translation_dirty else "translated"
+            dot = QRect(option.rect.left() + DOT_X,
+                        option.rect.center().y() - DOT_SIZE // 2, DOT_SIZE, DOT_SIZE)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(STATE_COLORS[state]))
+            painter.drawEllipse(dot)
+
+        # 复选框
         cb = QStyleOptionButton()
         cb.rect = checkbox_rect_for_rect(option.rect)
         cb.state = QStyle.State_Enabled | (QStyle.State_On if selected else QStyle.State_Off)
         if view is not None:
             view.style().drawControl(QStyle.CE_CheckBox, cb, painter, view)
 
+        # 文本
         text = index.data(Qt.DisplayRole) or ""
-        text_rect = option.rect.adjusted(CHECKBOX_W + TEXT_INDENT, 0, -4, 0)
-        painter.setFont(option.font)
-        fm = QFontMetrics(option.font)
-        elided = fm.elidedText(text, Qt.ElideRight, text_rect.width())
-        painter.setPen(QColor("#ffffff") if selected else QColor("#d4d4d4"))
-        painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, elided)
+        if self.show_translation and entry is not None and entry.translation:
+            text_rect = option.rect.adjusted(TEXT_X, 3, -4, 0)
+            sub_rect = option.rect.adjusted(TEXT_X, ROW_H_BI // 2 + 1, -4, -2)
+            self._draw_line(painter, option, text_rect, text, 10.5,
+                            "#ffffff" if selected else "#e8e8e8")
+            sub = entry.translation + ("  ⚠ 需更新" if entry.translation_dirty else "")
+            self._draw_line(painter, option, sub_rect, sub, 9.5,
+                            "#9db4c0" if selected else "#7a8a94", italic=True)
+        elif self.show_translation:
+            text_rect = option.rect.adjusted(TEXT_X, 3, -4, 0)
+            sub_rect = option.rect.adjusted(TEXT_X, ROW_H_BI // 2 + 1, -4, -2)
+            self._draw_line(painter, option, text_rect, text, 10.5,
+                            "#ffffff" if selected else "#e8e8e8")
+            self._draw_line(painter, option, sub_rect, "未翻译", 9.5, "#4a4a4a")
+        else:
+            text_rect = option.rect.adjusted(TEXT_X, 0, -4, 0)
+            self._draw_line(painter, option, text_rect, text, 10.5,
+                            "#ffffff" if selected else "#d4d4d4")
         painter.restore()
+
+    @staticmethod
+    def _draw_line(painter, option, rect, text, pt, color, italic=False):
+        f = QFont(option.font)
+        f.setPointSizeF(pt)
+        if italic:
+            f.setItalic(True)
+        painter.setFont(f)
+        fm = QFontMetrics(f)
+        elided = fm.elidedText(text, Qt.ElideRight, rect.width())
+        painter.setPen(QColor(color))
+        painter.drawText(rect, Qt.AlignVCenter | Qt.AlignLeft, elided)
 
     def createEditor(self, parent, option, index):
         ed = QLineEdit(parent)
@@ -102,6 +158,13 @@ class EntryListView(QListView):
         else:
             self.setDragEnabled(False)
             self.setDragDropMode(QAbstractItemView.NoDragDrop)
+
+    def set_show_translation(self, show: bool) -> None:
+        d = self.itemDelegate()
+        if isinstance(d, EntryDelegate) and d.show_translation != show:
+            d.show_translation = show
+            self.doItemsLayout()
+        self.viewport().update()
 
     def selectionChanged(self, selected, deselected) -> None:
         super().selectionChanged(selected, deselected)

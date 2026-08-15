@@ -10,6 +10,8 @@
 """
 from __future__ import annotations
 
+import json
+import os
 import random
 import uuid
 from pathlib import Path
@@ -46,6 +48,7 @@ class Library(QObject):
     structure_changed = Signal()   # 增删/导入/重载（行数变化，需要整体重建）
     order_changed = Signal()       # 仅顺序变化（排序 / 拖拽）
     entry_updated = Signal(str)    # 单条修改（参数为 entry id）
+    translations_changed = Signal()  # 翻译字段变化（触发旁车文件自动保存）
     dirty_changed = Signal(bool)
     meta_changed = Signal()        # 统计信息变化
 
@@ -59,6 +62,7 @@ class Library(QObject):
         self._saved_fp: int | None = None  # 上次加载/保存时的内容指纹
         self._fp_cache = 0
         self._fp_valid = False
+        self._sidecar_dirty = False  # 翻译旁车文件是否有未写入的修改
         self.undo_stack = QUndoStack(self)
         self.undo_stack.indexChanged.connect(self._refresh_dirty)
 
@@ -75,6 +79,7 @@ class Library(QObject):
         self.path = path
         self.encoding = enc
         self.entries = [PromptEntry(t) for t in lines]
+        self.load_sidecar()
         self.original_ids = [e.id for e in self.entries]
         self._invalidate_fp()
         self._saved_fp = self._fingerprint()
@@ -176,19 +181,90 @@ class Library(QObject):
         self.structure_changed.emit()
         self.meta_changed.emit()
 
-    def update_entry(self, entry_id: str, text: str) -> bool:
+    def update_entry(self, entry_id: str, text: str, restore_tdirty: bool | None = None) -> bool:
+        """修改原文。restore_tdirty 用于撤销：恢复删除前的翻译过期标记。"""
         for e in self.entries:
             if e.id == entry_id:
                 if e.text == text:
                     return False
-                if e.translation:  # 已有翻译且原文变化 → 标记翻译需更新（不删除旧翻译）
-                    e.translation_dirty = True
+                if restore_tdirty is None:
+                    if e.translation:  # 已有翻译且原文变化 → 标记翻译需更新（不删除旧翻译）
+                        e.translation_dirty = True
+                else:
+                    e.translation_dirty = restore_tdirty
                 e.text = text
                 self._invalidate_fp()
                 self.entry_updated.emit(entry_id)
                 self.meta_changed.emit()
                 return True
         return False
+
+    # ---------- 翻译 ----------
+
+    def set_translation(self, entry_id: str, chinese: str) -> bool:
+        """设置/清除翻译。翻译只作为管理信息，不影响 TXT 导出。"""
+        for e in self.entries:
+            if e.id == entry_id:
+                if e.translation == chinese and not e.translation_dirty:
+                    return False
+                e.translation = chinese
+                e.translation_dirty = False
+                self._sidecar_dirty = True
+                self.entry_updated.emit(entry_id)
+                self.meta_changed.emit()
+                self.translations_changed.emit()
+                return True
+        return False
+
+    def translation_state(self, entry: PromptEntry) -> str:
+        """翻译状态：untranslated / translated / stale。"""
+        if not entry.translation:
+            return "untranslated"
+        return "stale" if entry.translation_dirty else "translated"
+
+    # ---------- 翻译旁车文件（<name>.txt.zh.json）----------
+    # TXT 保持纯文本；翻译单独存旁车文件，重启后仍可恢复。
+
+    def sidecar_path(self) -> Path | None:
+        if not self.path:
+            return None
+        return self.path.with_name(self.path.name + ".zh.json")
+
+    def load_sidecar(self) -> None:
+        p = self.sidecar_path()
+        if not p or not p.exists():
+            return
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        entries = data.get("entries") if isinstance(data, dict) else None
+        if not isinstance(entries, dict):
+            return
+        for e in self.entries:
+            if e.text in entries:
+                e.translation = entries[e.text]
+                e.translation_dirty = False
+
+    def save_sidecar(self) -> None:
+        p = self.sidecar_path()
+        if p is None:
+            return
+        data = {
+            "version": 1,
+            "entries": {e.text: e.translation for e in self.entries if e.translation},
+        }
+        tmp = p.with_name(p.name + ".tmp")
+        try:
+            tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, p)
+            self._sidecar_dirty = False
+        finally:
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
 
     # ---------- 顺序 / 排序 ----------
 

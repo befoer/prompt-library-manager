@@ -1,13 +1,16 @@
 """主窗口：布局、菜单、快捷键、文件夹模式、外部修改检测、拖拽打开。"""
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from PySide6.QtCore import QFileSystemWatcher, QSettings, Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
@@ -16,19 +19,34 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QProgressDialog,
     QSplitter,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from app.core import io
-from app.core.commands import AddEntriesCommand, RemoveEntriesCommand, ReorderCommand
+from app.core import io, library_ops
+from app.core.ai_translate import AIConfig, TranslateWorker, TranslationCache
+from app.core.commands import (
+    AddEntriesCommand,
+    BatchReplaceCommand,
+    RemoveEntriesCommand,
+    ReorderCommand,
+    SetTranslationsCommand,
+)
+from app.core.dictionary import OfflineDictionary
 from app.core.model import Library
 from app.ui.dialogs import DiffDialog, RandomBatchDialog, RandomPickDialog, confirm
 from app.ui.entry_model import EntryListModel, MODES
 from app.ui.entry_view import EntryListView
 from app.ui.sidebar import SidebarPanel
+from app.ui.translate_dialogs import (
+    BatchReplaceDialog,
+    EditTranslationDialog,
+    MoveCopyDialog,
+    TranslationSettingsDialog,
+)
 
 SORT_MODES = [
     ("original", "原始顺序"),
@@ -56,6 +74,26 @@ class MainWindow(QMainWindow):
 
         self.settings = QSettings("PromptLib", "PromptLibraryManager")
 
+        self._load_ai_config()
+        dict_override = str(self.settings.value("translate/dict_dir", ""))
+        default_tags = Path(__file__).resolve().parent.parent.parent / "Tags"
+        self.dictionary = OfflineDictionary(
+            [Path(dict_override)] if dict_override else [default_tags]
+        )
+        try:
+            self.dictionary.load()
+        except Exception:
+            pass
+        self.cache = TranslationCache()
+        self._translate_worker = None
+        self._translate_progress = None
+        self._translate_ids: dict[str, list[str]] = {}
+
+        self._sidecar_timer = QTimer(self)
+        self._sidecar_timer.setSingleShot(True)
+        self._sidecar_timer.setInterval(1200)
+        self._sidecar_timer.timeout.connect(self._flush_sidecar)
+
         self._watcher = QFileSystemWatcher(self)
         self._watcher.fileChanged.connect(self._on_watch_event)
         self._watcher.directoryChanged.connect(self._on_watch_event)
@@ -67,6 +105,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._build_actions()
         self._restore_settings()
+        self._on_dict_loaded()
 
         last = self.settings.value("last_folder", "")
         if last and Path(last).is_dir():
@@ -97,6 +136,9 @@ class MainWindow(QMainWindow):
         self.btn_new_entry.setToolTip("在列表底部新增条目（Ctrl+N）")
         row1.addWidget(self.search_edit, 1)
         row1.addWidget(self.mode_combo)
+        self.chk_show_zh = QCheckBox("中文")
+        self.chk_show_zh.setToolTip("双语显示：英文 + 中文翻译")
+        row1.addWidget(self.chk_show_zh)
         row1.addWidget(self.btn_random)
         row1.addWidget(self.btn_new_entry)
         rlay.addLayout(row1)
@@ -116,6 +158,12 @@ class MainWindow(QMainWindow):
         row2.addWidget(self.btn_export)
         row2.addWidget(self.btn_dedupe)
         row2.addWidget(self.btn_sort)
+        self.btn_batch = QToolButton(text="批量 ▾")
+        self.btn_batch.setPopupMode(QToolButton.InstantPopup)
+        self.btn_translate = QToolButton(text="翻译 ▾")
+        self.btn_translate.setPopupMode(QToolButton.InstantPopup)
+        row2.addWidget(self.btn_batch)
+        row2.addWidget(self.btn_translate)
         row2.addStretch(1)
         row2.addWidget(self.btn_delete)
         rlay.addLayout(row2)
@@ -138,7 +186,9 @@ class MainWindow(QMainWindow):
         # 状态栏
         self.status_dirty = QLabel("")
         self.status_encoding = QLabel("")
+        self.status_dict = QLabel("")
         self.statusBar().addPermanentWidget(self.status_encoding)
+        self.statusBar().addPermanentWidget(self.status_dict)
         self.statusBar().addPermanentWidget(self.status_dirty)
 
         # 信号
@@ -153,6 +203,9 @@ class MainWindow(QMainWindow):
         self.btn_delete.clicked.connect(self.delete_selected)
         self.entry_view.delete_requested.connect(self.delete_selected)
         self.entry_view.customContextMenuRequested.connect(self._entry_context_menu)
+        self.chk_show_zh.setChecked(bool(self.settings.value("translate/show_zh", True, type=bool)))
+        self.chk_show_zh.toggled.connect(self._on_show_zh_toggled)
+        self.entry_view.set_show_translation(self.chk_show_zh.isChecked())
 
         self.sidebar.open_folder_requested.connect(self._choose_folder)
         self.sidebar.new_library_requested.connect(self.new_library)
@@ -204,6 +257,24 @@ class MainWindow(QMainWindow):
 
         act(m_tool, "随机抽取 1 条", "Ctrl+R", self.random_pick)
         act(m_tool, "随机抽取多条…", None, self.random_pick_batch)
+
+        batch_menu = QMenu("批量操作", self)
+        batch_menu.addAction("批量替换…", self.batch_replace)
+        batch_menu.addAction("复制到其他词库…", lambda: self.move_copy_entries())
+        batch_menu.addAction("移动到其他词库…", lambda: self.move_copy_entries(move=True))
+        self.btn_batch.setMenu(batch_menu)
+        m_tool.addMenu(batch_menu)
+
+        m_translate = mb.addMenu("翻译(&L)")
+        m_translate.addAction("离线词典翻译选中", lambda: self.translate_selected(ai=False))
+        m_translate.addAction("AI 翻译选中", lambda: self.translate_selected(ai=True))
+        m_translate.addAction("AI 翻译全部未翻译…", self.translate_all_untranslated)
+        m_translate.addSeparator()
+        m_translate.addAction("编辑翻译…", self.edit_translation)
+        m_translate.addAction("清除选中翻译", self.clear_selected_translations)
+        m_translate.addSeparator()
+        m_translate.addAction("翻译设置…", self.open_translate_settings)
+
         act(m_help, "关于", "F1", self._about)
 
         # Ctrl+F 聚焦搜索框
@@ -224,6 +295,7 @@ class MainWindow(QMainWindow):
         lib.undo_stack.canRedoChanged.connect(self.act_redo.setEnabled)
         lib.dirty_changed.connect(self._on_dirty_changed)
         lib.meta_changed.connect(self._update_stats)
+        lib.translations_changed.connect(self._sidecar_timer.start)
         self.act_undo.setEnabled(lib.undo_stack.canUndo())
         self.act_redo.setEnabled(lib.undo_stack.canRedo())
         self._update_title()
@@ -238,6 +310,7 @@ class MainWindow(QMainWindow):
             (lib.undo_stack.canRedoChanged, self.act_redo.setEnabled),
             (lib.dirty_changed, self._on_dirty_changed),
             (lib.meta_changed, self._update_stats),
+            (lib.translations_changed, self._sidecar_timer.start),
         ):
             try:
                 sig.disconnect(slot)
@@ -249,6 +322,7 @@ class MainWindow(QMainWindow):
         self._bound_lib = None
 
     def _set_library(self, lib: Library | None) -> None:
+        self._flush_sidecar()
         self._unbind_library()
         if self.library is not None and self.library is not lib:
             self.library.deleteLater()
@@ -438,6 +512,331 @@ class MainWindow(QMainWindow):
             return
         n = len(self.library.entries)
         self.statusBar().showMessage(f"已导出 {n} 条 → {path}", 4000)
+
+    # ================= 翻译 =================
+
+    def _load_ai_config(self) -> None:
+        s = self.settings
+        self.ai_cfg = AIConfig(
+            enabled=bool(s.value("translate/enabled", False, type=bool)),
+            provider=str(s.value("translate/provider", "openai")),
+            base_url=str(s.value("translate/base_url", "https://api.openai.com/v1")),
+            api_key=str(s.value("translate/api_key", "")),
+            model=str(s.value("translate/model", "gpt-4o-mini")),
+            concurrency=int(s.value("translate/concurrency", 4)),
+            batch_size=int(s.value("translate/batch_size", 20)),
+            baidu_appid=str(s.value("translate/baidu_appid", "")),
+            baidu_secret=str(s.value("translate/baidu_secret", "")),
+        )
+
+    def _save_ai_config(self) -> None:
+        s = self.settings
+        c = self.ai_cfg
+        s.setValue("translate/enabled", c.enabled)
+        s.setValue("translate/provider", c.provider)
+        s.setValue("translate/base_url", c.base_url)
+        s.setValue("translate/api_key", c.api_key)
+        s.setValue("translate/model", c.model)
+        s.setValue("translate/concurrency", c.concurrency)
+        s.setValue("translate/batch_size", c.batch_size)
+        s.setValue("translate/baidu_appid", c.baidu_appid)
+        s.setValue("translate/baidu_secret", c.baidu_secret)
+
+    def _on_dict_loaded(self) -> None:
+        d = self.dictionary
+        if d.loaded:
+            self.status_dict.setText(f"词典 {d.zh_count:,}/{d.alias_count:,}")
+            self.status_dict.setToolTip("离线词典：zh-CN.txt 英中对照 + danbooru/e621 别名表")
+        else:
+            self.status_dict.setText("词典 未加载")
+            self.status_dict.setToolTip(d.error or "未找到词典文件（需要 Tags 目录或翻译设置指定）")
+
+    def _on_show_zh_toggled(self, on: bool) -> None:
+        self.settings.setValue("translate/show_zh", on)
+        self.entry_view.set_show_translation(on)
+
+    def _flush_sidecar(self) -> None:
+        if self.library is not None:
+            self.library.save_sidecar()
+
+    def selected_texts(self) -> list[str]:
+        rows = sorted({i.row() for i in self.entry_view.selectionModel().selectedIndexes()})
+        if not rows or self.model is None:
+            return []
+        return list(dict.fromkeys(self.model.entry_at(r).text for r in rows))
+
+    def translate_selected(self, ai: bool = True) -> None:
+        if self.library is None or self.model is None:
+            QMessageBox.information(self, "翻译", "请先打开一个词库。")
+            return
+        texts = self.selected_texts()
+        if not texts:
+            QMessageBox.information(self, "翻译", "请先选中要翻译的条目（可 Ctrl+A 全选）。")
+            return
+        self._start_translate(texts, ai=ai)
+
+    def translate_all_untranslated(self) -> None:
+        if self.library is None:
+            return
+        if self.model is not None and self.model.query:
+            cand = [self.model.entry_at(r) for r in range(self.model.rowCount())]
+        else:
+            cand = self.library.entries
+        texts = list(dict.fromkeys(e.text for e in cand if not e.translation or e.translation_dirty))
+        if not texts:
+            QMessageBox.information(self, "批量翻译", "当前范围没有未翻译的条目。")
+            return
+        self._start_translate(texts, ai=True)
+
+    def _start_translate(self, texts: list[str], ai: bool) -> None:
+        if not texts:
+            return
+        if not ai:
+            self._offline_translate(texts)
+            return
+        if self._translate_worker is not None:
+            QMessageBox.information(self, "翻译", "已有翻译任务正在进行，请稍候。")
+            return
+        worker = TranslateWorker(texts, self.ai_cfg, self.cache, self.dictionary, parent=self)
+        self._translate_worker = worker
+        self._translate_ids = {}
+        for e in self.library.entries:
+            self._translate_ids.setdefault(e.text, []).append(e.id)
+        dlg = QProgressDialog("准备翻译…", "取消", 0, len(texts), self)
+        dlg.setWindowTitle("AI 批量翻译")
+        dlg.setWindowModality(Qt.WindowModal)
+        dlg.setMinimumDuration(0)
+        dlg.canceled.connect(worker.cancel.set)
+        self._translate_progress = dlg
+        worker.progress.connect(self._on_translate_progress)
+        worker.finished.connect(self._on_translate_finished)
+        threading.Thread(target=worker.run, daemon=True).start()
+
+    def _on_translate_progress(self, done: int, total: int, current: str) -> None:
+        dlg = self._translate_progress
+        if dlg is None:
+            return
+        dlg.setMaximum(max(total, 1))
+        dlg.setValue(done)
+        if current:
+            dlg.setLabelText(f"翻译中… {done}/{total}\n{current[:80]}")
+
+    def _on_translate_finished(self, results: dict, errors: list) -> None:
+        if self._translate_progress is not None:
+            self._translate_progress.close()
+            self._translate_progress.deleteLater()
+            self._translate_progress = None
+        self._translate_worker = None
+        changes = []
+        for text, zh in results.items():
+            for eid in self._translate_ids.get(text, []):
+                entry = self.library.get(eid) if self.library else None
+                if entry is not None and entry.translation != zh:
+                    changes.append((eid, entry.translation, zh))
+        if changes and self.library is not None:
+            self.library.undo_stack.push(
+                SetTranslationsCommand(self.library, changes, f"AI 翻译 {len(changes)} 条")
+            )
+        if self.library is not None:
+            self._flush_sidecar()
+            self._update_stats()
+        if errors:
+            QMessageBox.warning(
+                self,
+                "翻译完成",
+                f"成功 {len(changes)} 条，失败 {len(errors)} 条。\n\n" + "\n".join(errors[:8]),
+            )
+        else:
+            self.statusBar().showMessage(f"翻译完成：{len(changes)} 条", 4000)
+
+    def _offline_translate(self, texts: list[str]) -> None:
+        if not self.dictionary.loaded:
+            QMessageBox.information(
+                self,
+                "离线翻译",
+                "离线词典未加载。\n" + (self.dictionary.error or "请在 翻译设置 中指定词典目录。"),
+            )
+            return
+        wanted = set(texts)
+        changes = []
+        for e in self.library.entries:
+            if e.text not in wanted:
+                continue
+            zh = self.dictionary.translate_entry(e.text)
+            if zh and zh != e.translation:
+                changes.append((e.id, e.translation, zh))
+        if changes:
+            self.library.undo_stack.push(
+                SetTranslationsCommand(self.library, changes, f"离线翻译 {len(changes)} 条")
+            )
+            self._flush_sidecar()
+        self.statusBar().showMessage(f"离线翻译 {len(changes)} 条（词典命中）", 3000)
+
+    def edit_translation(self) -> None:
+        if self.library is None or self.model is None:
+            return
+        rows = sorted({i.row() for i in self.entry_view.selectionModel().selectedIndexes()})
+        if len(rows) != 1:
+            QMessageBox.information(self, "编辑翻译", "请只选中一条条目。")
+            return
+        entry = self.model.entry_at(rows[0])
+        dlg = EditTranslationDialog(entry.text, entry.translation, self)
+        if dlg.exec() == QDialog.Accepted:
+            new = dlg.text()
+            if new != entry.translation:
+                self.library.undo_stack.push(
+                    SetTranslationsCommand(self.library, [(entry.id, entry.translation, new)], "编辑翻译")
+                )
+                self._flush_sidecar()
+
+    def clear_selected_translations(self) -> None:
+        if self.library is None or self.model is None:
+            return
+        rows = sorted({i.row() for i in self.entry_view.selectionModel().selectedIndexes()})
+        changes = [
+            (self.model.entry_at(r).id, self.model.entry_at(r).translation, "")
+            for r in rows
+            if self.model.entry_at(r).translation
+        ]
+        if not changes:
+            QMessageBox.information(self, "清除翻译", "选中的条目都没有翻译。")
+            return
+        self.library.undo_stack.push(
+            SetTranslationsCommand(self.library, changes, f"清除 {len(changes)} 条翻译")
+        )
+        self._flush_sidecar()
+        self.statusBar().showMessage(f"已清除 {len(changes)} 条翻译（Ctrl+Z 可撤销）", 3000)
+
+    def open_translate_settings(self) -> None:
+        dlg = TranslationSettingsDialog(self.ai_cfg, self.dictionary, self.cache, self)
+        if dlg.exec() == QDialog.Accepted:
+            self.ai_cfg = dlg.result_cfg()
+            self._save_ai_config()
+            self._on_dict_loaded()
+            self.statusBar().showMessage("翻译设置已保存", 3000)
+
+    # ================= 批量替换 / 跨词库复制移动 =================
+
+    def batch_replace(self) -> None:
+        if self.library is None:
+            QMessageBox.information(self, "提示", "请先打开一个词库。")
+            return
+        dlg = BatchReplaceDialog(self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        find, repl, scope = dlg.values()
+        if not find.strip():
+            QMessageBox.warning(self, "批量替换", "查找内容不能为空。")
+            return
+        if scope == "all":
+            self._batch_replace_all(find, repl)
+        else:
+            self._batch_replace_current(find, repl)
+
+    def _batch_replace_current(self, find: str, repl: str) -> None:
+        changes = library_ops.library_replace_changes(self.library, find, repl)
+        if not changes:
+            QMessageBox.information(self, "批量替换", f"未找到包含「{find}」的条目。")
+            return
+        if not confirm(
+            self,
+            "批量替换",
+            f"发现 {len(changes)} 个匹配条目。\n将把「{find}」替换为「{repl}」（不区分大小写）。\n替换可用 Ctrl+Z 撤销。",
+            ok_text="全部替换",
+        ):
+            return
+        self.library.undo_stack.push(BatchReplaceCommand(self.library, changes, find, repl))
+        self.statusBar().showMessage(f"已替换 {len(changes)} 条（Ctrl+Z 可撤销）", 3000)
+
+    def _batch_replace_all(self, find: str, repl: str) -> None:
+        if self.current_folder is None:
+            QMessageBox.information(self, "批量替换", "请先打开词库文件夹。")
+            return
+        files = sorted(self.current_folder.glob("*.txt"), key=lambda x: x.name.casefold())
+        if not files:
+            return
+        _apply, count = library_ops.compile_replacer(find, repl)
+        total = 0
+        readable: list[Path] = []
+        for f in files:
+            try:
+                lines, _ = io.read_lines(f)
+                readable.append(f)
+                total += sum(count(ln) for ln in lines)
+            except OSError:
+                continue
+        if not total:
+            QMessageBox.information(self, "批量替换", f"所有词库中未找到包含「{find}」的条目。")
+            return
+        if not confirm(
+            self,
+            "批量替换",
+            f"所有词库共发现 {total} 个匹配项（{len(readable)} 个文件）。\n"
+            "将直接写入文件，此操作不可撤销。",
+            ok_text="全部替换",
+        ):
+            return
+        progress = QProgressDialog("正在替换…", None, 0, len(readable), self)
+        progress.setWindowTitle("批量替换（所有词库）")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        for i, f in enumerate(readable):
+            if (
+                self.library is not None
+                and self.library.path is not None
+                and f.resolve() == self.library.path.resolve()
+            ):
+                changes = library_ops.library_replace_changes(self.library, find, repl)
+                if changes:
+                    self.library.undo_stack.push(
+                        BatchReplaceCommand(self.library, changes, find, repl)
+                    )
+                    self.save_library()
+            else:
+                try:
+                    library_ops.replace_in_file(f, find, repl)
+                except OSError:
+                    pass
+            progress.setValue(i + 1)
+        progress.close()
+        self.statusBar().showMessage(f"所有词库替换完成：共 {total} 处", 4000)
+
+    def move_copy_entries(self, move: bool = False) -> None:
+        if self.library is None or self.model is None or self.current_folder is None:
+            return
+        rows = sorted({i.row() for i in self.entry_view.selectionModel().selectedIndexes()})
+        if not rows:
+            QMessageBox.information(self, "复制/移动", "请先选中条目（可 Ctrl+A 全选）。")
+            return
+        texts = [self.model.entry_at(r).text for r in rows]
+        cur = self.library.path.resolve() if self.library.path else None
+        targets = [
+            (p.name, str(p))
+            for p in sorted(self.current_folder.glob("*.txt"), key=lambda x: x.name.casefold())
+            if cur is None or p.resolve() != cur
+        ]
+        if not targets:
+            QMessageBox.information(self, "复制/移动", "当前文件夹没有其他词库。")
+            return
+        dlg = MoveCopyDialog(targets, len(texts), default_move=move, parent=self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        mode, target_path = dlg.result()
+        try:
+            added = library_ops.append_lines_to_file(Path(target_path), texts)
+        except OSError as e:
+            QMessageBox.critical(self, "失败", f"写入目标词库失败：\n{e}")
+            return
+        if mode == "move":
+            entries = [self.model.entry_at(r) for r in rows]
+            self.library.undo_stack.push(
+                RemoveEntriesCommand(self.library, entries, "移动到其他词库")
+            )
+            self.statusBar().showMessage(
+                f"已移动 {len(entries)} 条 → {Path(target_path).name}（源库 Ctrl+Z 可撤销）", 4000
+            )
+        else:
+            self.statusBar().showMessage(f"已复制 {added} 条 → {Path(target_path).name}", 4000)
 
     # ================= 词库文件管理 =================
 
@@ -688,8 +1087,7 @@ class MainWindow(QMainWindow):
             parts.append(f"重复 {c['duplicates']}")
         if c["empty"]:
             parts.append(f"空行 {c['empty']}")
-        if c["translated"]:
-            parts.append(f"已翻译 {c['translated']}")
+        parts.append(f"翻译 {c['translated']}/{c['total']}")
         parts.append(f"{c['chars']:,} 字符")
         if self.model is not None and self.model.query:
             parts.append(f"匹配 {len(self.model.visible):,}")
@@ -727,10 +1125,19 @@ class MainWindow(QMainWindow):
             menu.addAction("编辑", lambda: self.entry_view.edit(index))
             menu.addAction("复制", lambda: QApplication.clipboard().setText(text))
             menu.addSeparator()
+            menu.addAction("AI 翻译", lambda: self.translate_selected(ai=True))
+            menu.addAction("离线词典翻译", lambda: self.translate_selected(ai=False))
+            menu.addAction("编辑翻译…", self.edit_translation)
+            menu.addAction("复制到其他词库…", lambda: self.move_copy_entries())
+            menu.addAction("移动到其他词库…", lambda: self.move_copy_entries(move=True))
+            menu.addSeparator()
             menu.addAction("删除", self.delete_selected)
         elif len(rows) > 1:
             texts = "\n".join(self.model.entry_at(r).text for r in rows)
             menu.addAction(f"复制 {len(rows)} 条", lambda: QApplication.clipboard().setText(texts))
+            menu.addAction(f"AI 翻译 {len(rows)} 条", lambda: self.translate_selected(ai=True))
+            menu.addAction("复制到其他词库…", lambda: self.move_copy_entries())
+            menu.addAction("移动到其他词库…", lambda: self.move_copy_entries(move=True))
             menu.addSeparator()
             menu.addAction(f"删除 {len(rows)} 条", lambda: self.delete_selected(confirm_needed=True))
         else:
@@ -743,12 +1150,15 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "关于 Prompt Library Manager",
-            "Prompt / Tag 文本词库管理器（Phase 1）\n\n"
+            "Prompt / Tag 文本词库管理器（Phase 2 + 3）\n\n"
             "用于管理 ComfyUI Wildcard / 文本列表词库的本地 TXT 工具。\n"
             "整行 = 一个随机候选项，导出 TXT 只输出原始文本。\n\n"
-            "Phase 1 功能：打开/搜索/增删改/批量删除/去重/排序/拖拽排序/\n"
-            "导入导出/随机抽取/Ctrl+S/Ctrl+Z/编码自动识别/外部修改检测。\n\n"
-            "后续阶段：中文翻译、AI API、批量替换、CSV、词库合并与差异比较。",
+            "Phase 1：打开/搜索/增删改/批量删除/去重/排序/拖拽排序/\n"
+            "　　　　导入导出/随机抽取/Ctrl+S/Ctrl+Z/编码识别/外部修改检测\n"
+            "Phase 2：批量替换、跨词库复制/移动\n"
+            "Phase 3：双语显示、离线词典翻译（Tags/zh-CN.txt）、\n"
+            "　　　　AI 翻译（OpenAI 兼容 / 百度，带缓存）、翻译状态标记\n\n"
+            "后续阶段：CSV 导入导出、词库合并、差异比较、桌面打包。",
         )
 
     def _restore_settings(self) -> None:
@@ -763,6 +1173,7 @@ class MainWindow(QMainWindow):
         if not self._guard_unsaved():
             event.ignore()
             return
+        self._flush_sidecar()
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("splitter", self.splitter.saveState())
         event.accept()
