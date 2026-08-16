@@ -26,6 +26,12 @@ MODES = [
     ("regex", "正则"),
 ]
 
+SCOPES = [
+    ("both", "原文 + 翻译"),
+    ("text", "仅原文"),
+    ("translation", "仅翻译"),
+]
+
 
 class EntryListModel(QAbstractListModel):
     def __init__(self, library: Library, parent=None):
@@ -33,6 +39,7 @@ class EntryListModel(QAbstractListModel):
         self.library = library
         self.query = ""
         self.mode = "contains"
+        self.scope = "both"  # 搜索范围：both / text / translation
         self.visible: list[int] = []  # 可见行 -> library.entries 的下标
         library.structure_changed.connect(self._rebuild)
         library.order_changed.connect(self._on_order_changed)
@@ -41,9 +48,7 @@ class EntryListModel(QAbstractListModel):
 
     # ---------- 过滤 ----------
 
-    def _match(self, text: str) -> bool:
-        if not self.query:
-            return True
+    def _match_text(self, text: str) -> bool:
         q = self.query
         if self.mode == "prefix":
             return text.casefold().startswith(q.casefold())
@@ -56,25 +61,35 @@ class EntryListModel(QAbstractListModel):
                 return False
         return q.casefold() in text.casefold()
 
-    def set_filter(self, query: str, mode: str) -> None:
-        if query == self.query and mode == self.mode:
+    def _match_entry(self, entry: PromptEntry) -> bool:
+        if not self.query:
+            return True
+        if self.scope == "translation":
+            return self._match_text(entry.translation or "")
+        if self.scope == "text":
+            return self._match_text(entry.text)
+        return self._match_text(entry.text) or self._match_text(entry.translation or "")
+
+    def set_filter(self, query: str, mode: str, scope: str = "both") -> None:
+        if query == self.query and mode == self.mode and scope == self.scope:
             return
         self.query = query
         self.mode = mode
+        self.scope = scope
         self._rebuild()
 
     # ---------- 库信号处理 ----------
 
     def _rebuild(self) -> None:
         self.beginResetModel()
-        self.visible = [i for i, e in enumerate(self.library.entries) if self._match(e.text)]
+        self.visible = [i for i, e in enumerate(self.library.entries) if self._match_entry(e)]
         self.endResetModel()
 
     def _on_order_changed(self) -> None:
         old = {}
         for row, li in enumerate(self.visible):
             old[self.library.entries[li].id] = self.index(row, 0)
-        new_visible = [i for i, e in enumerate(self.library.entries) if self._match(e.text)]
+        new_visible = [i for i, e in enumerate(self.library.entries) if self._match_entry(e)]
         self.layoutAboutToBeChanged.emit()
         self.visible = new_visible
         row_of = {self.library.entries[i].id: r for r, i in enumerate(new_visible)}

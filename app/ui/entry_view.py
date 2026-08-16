@@ -142,7 +142,8 @@ class EntryDelegate(QStyledItemDelegate):
         model = index.model()
         query = getattr(model, "query", "") or ""
         mode = getattr(model, "mode", "contains")
-        hl = match_range(text, query, mode) if query else None
+        scope = getattr(model, "scope", "both")
+        hl = match_range(text, query, mode) if query and scope in ("text", "both") else None
         en_color = "#ffffff" if selected else "#e8e8e8"
         zh_color = "#d8e6ee" if selected else "#93a7b3"
 
@@ -170,8 +171,9 @@ class EntryDelegate(QStyledItemDelegate):
             if entry is not None and entry.translation:
                 zh = entry.translation + (" ⚠ 需更新" if entry.translation_dirty else "")
                 r = zh_rect.adjusted(18, 0, 0, 0) if is_partial_translation(entry.translation) else zh_rect
+                hl_zh = match_range(entry.translation, query, mode) if query and scope in ("translation", "both") else None
                 self._draw_line(painter, option, r, zh, 10, zh_color,
-                                family="Microsoft YaHei UI")
+                                family="Microsoft YaHei UI", hl=hl_zh)
         else:
             # 分栏布局：英文左栏 + 中文右栏（固定比例 + 分隔线）
             left_w = max(0, int(total.width() * SPLIT_RATIO) - DIVIDER_GAP // 2)
@@ -188,8 +190,9 @@ class EntryDelegate(QStyledItemDelegate):
             if entry is not None and entry.translation:
                 zh = entry.translation + (" ⚠ 需更新" if entry.translation_dirty else "")
                 r = right_rect.adjusted(18, 0, 0, 0) if is_partial_translation(entry.translation) else right_rect
+                hl_zh = match_range(entry.translation, query, mode) if query and scope in ("translation", "both") else None
                 self._draw_line(painter, option, r, zh, 10, zh_color,
-                                family="Microsoft YaHei UI")
+                                family="Microsoft YaHei UI", hl=hl_zh)
 
         # 未翻译 / 部分翻译：中文栏起始处显示翻译按钮
         if entry is not None and self.translate_icon is not None:

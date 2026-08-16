@@ -41,7 +41,7 @@ from app.core.model import Library
 from app import resources
 from app.ui import icons
 from app.ui.dialogs import DiffDialog, ExportDialog, RandomBatchDialog, RandomPickDialog, confirm
-from app.ui.entry_model import EntryListModel, MODES
+from app.ui.entry_model import EntryListModel, MODES, SCOPES
 from app.ui.entry_view import EntryListView, is_partial_translation
 from app.ui.phase4_dialogs import CompareDialog, MergeDialog, TagStatsDialog
 from app.ui.sidebar import SidebarPanel
@@ -263,6 +263,7 @@ class MainWindow(QMainWindow):
 
         # 信号
         self._search_mode = "contains"
+        self._search_scope = "both"
         self.search_edit.textChanged.connect(self._on_search_debounce)
         self.btn_random.clicked.connect(self.random_pick)
         self.btn_new_entry.clicked.connect(self.add_entry)
@@ -290,6 +291,18 @@ class MainWindow(QMainWindow):
                 a.setChecked(True)
             a.triggered.connect(lambda _=False, m=_key: self._set_search_mode(m))
             self._filter_group.addAction(a)
+            self._filter_menu.addAction(a)
+        # 搜索范围：原文 / 翻译 / 两者
+        self._filter_menu.addSeparator()
+        self._scope_group = QActionGroup(self)
+        self._scope_group.setExclusive(True)
+        for _key, label in SCOPES:
+            a = QAction(label, self)
+            a.setCheckable(True)
+            if _key == "both":
+                a.setChecked(True)
+            a.triggered.connect(lambda _=False, s=_key: self._set_search_scope(s))
+            self._scope_group.addAction(a)
             self._filter_menu.addAction(a)
         self.btn_filter.setMenu(self._filter_menu)
 
@@ -1340,7 +1353,7 @@ class MainWindow(QMainWindow):
         if self.model is None:
             return
         q = self.search_edit.text()
-        self.model.set_filter(q, self._search_mode)
+        self.model.set_filter(q, self._search_mode, self._search_scope)
         self.entry_view.set_drag_enabled(not q)
         self._update_stats()
 
@@ -1355,6 +1368,10 @@ class MainWindow(QMainWindow):
 
     def _set_search_mode(self, mode: str) -> None:
         self._search_mode = mode
+        self._apply_filter()
+
+    def _set_search_scope(self, scope: str) -> None:
+        self._search_scope = scope
         self._apply_filter()
 
     def copy_selected(self) -> None:
