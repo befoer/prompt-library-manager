@@ -19,7 +19,7 @@ def main() -> int:
     from app.ui.main_window import MainWindow
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Prompt Library Manager")
+    app.setApplicationName("词库管理器")
     app.setOrganizationName("PromptLib")
     app.setStyle("Fusion")
     app.setFont(QFont("Microsoft YaHei UI", 9))
@@ -30,6 +30,8 @@ def main() -> int:
         app.setWindowIcon(QIcon(str(icon_path)))
 
     win = MainWindow()
+    if icon_path is not None:
+        win.setWindowIcon(QIcon(str(icon_path)))
     win.show()
     return app.exec()
 

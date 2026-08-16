@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import QItemSelectionModel, QModelIndex, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QLineEdit,
@@ -82,6 +82,15 @@ def translate_button_rect(rect: QRect, text: str, layout: str, font) -> QRect:
         left_w = int(total.width() * SPLIT_RATIO) - DIVIDER_GAP // 2
         x = total.left() + left_w + DIVIDER_GAP + 2
     return QRect(int(x), int(y), size, size)
+
+
+def is_partial_translation(text: str) -> bool:
+    """判断翻译是否含英文残留（离线词典部分命中，中英混杂）。"""
+    if not text:
+        return False
+    has_cjk = any("\u4e00" <= ch <= "\u9fff" for ch in text)
+    has_alpha = any(ch.isascii() and ch.isalpha() for ch in text)
+    return has_cjk and has_alpha
 
 
 class EntryDelegate(QStyledItemDelegate):
@@ -180,10 +189,11 @@ class EntryDelegate(QStyledItemDelegate):
                 self._draw_line(painter, option, right_rect, zh, 10, zh_color,
                                 family="Microsoft YaHei UI")
 
-        # 未翻译：中文栏起始处显示翻译按钮
-        if entry is not None and not entry.translation and self.translate_icon is not None:
-            btn_rect = translate_button_rect(option.rect, text, self.layout, option.font)
-            self.translate_icon.paint(painter, btn_rect)
+        # 未翻译 / 部分翻译：中文栏起始处显示翻译按钮
+        if entry is not None and self.translate_icon is not None:
+            if not entry.translation or is_partial_translation(entry.translation):
+                btn_rect = translate_button_rect(option.rect, text, self.layout, option.font)
+                self.translate_icon.paint(painter, btn_rect)
 
         painter.restore()
 
@@ -213,9 +223,14 @@ class EntryDelegate(QStyledItemDelegate):
         ed = QLineEdit(parent)
         ed.setFrame(False)
         ed.setStyleSheet(
-            "QLineEdit { background:#3c3c3c; color:#ffffff; "
-            "selection-background-color:#094771; padding:2px 4px; border:none; }"
+            "QLineEdit { background:#2d2d2d; color:#ffffff; "
+            "selection-background-color:#094771; selection-color:#ffffff; "
+            "padding:2px 4px; border:1px solid #4fc3f7; }"
         )
+        pal = ed.palette()
+        pal.setColor(QPalette.Text, QColor("#ffffff"))
+        pal.setColor(QPalette.Base, QColor("#2d2d2d"))
+        ed.setPalette(pal)
         return ed
 
     def setEditorData(self, editor, index):
@@ -294,13 +309,14 @@ class EntryListView(QListView):
                 return  # 点击空白处不清空选择
             entry = idx.data(ENTRY_ROLE)
             text = idx.data(Qt.DisplayRole) or ""
-            # 1) 点击未翻译条目的翻译按钮 → 翻译该条
-            if entry is not None and not entry.translation:
-                btn = translate_button_rect(self.visualRect(idx), text,
-                                            self.itemDelegate().layout, self.font())
-                if btn.contains(event.pos()):
-                    self.translate_requested.emit(entry.id)
-                    return
+            # 1) 点击翻译按钮 → 翻译该条（未翻译走词典+AI；部分翻译走 AI 替换）
+            if entry is not None:
+                if not entry.translation or is_partial_translation(entry.translation):
+                    btn = translate_button_rect(self.visualRect(idx), text,
+                                                self.itemDelegate().layout, self.font())
+                    if btn.contains(event.pos()):
+                        self.translate_requested.emit(entry.id)
+                        return
             # 2) 只有点击前面的复选框才切换选中
             cb = checkbox_click_rect(self.visualRect(idx))
             if cb.contains(event.pos()):

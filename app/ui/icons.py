@@ -58,6 +58,19 @@ def _pixmap(kind: str, color: str, size: int = SIZE) -> QPixmap:
         ])
         p.drawPolygon(down)
 
+    elif kind == "compact":
+        # 紧凑：左箭头压向右边的竖线（压缩）
+        m = size * 0.16
+        bar_w = size * 0.11
+        bar_x = size - m - bar_w
+        p.drawRect(QRectF(bar_x, m, bar_w, size - 2 * m))
+        arrow = QPolygonF([
+            QPointF(m, cx),
+            QPointF(m + size * 0.36, m + size * 0.18),
+            QPointF(m + size * 0.36, size - m - size * 0.18),
+        ])
+        p.drawPolygon(arrow)
+
     p.end()
     return pm
 

@@ -208,6 +208,7 @@ class TranslateWorker(QObject):
         cache: TranslationCache | None = None,
         dictionary=None,
         cancel_event: threading.Event | None = None,
+        skip_dict: bool = False,
         parent=None,
     ):
         super().__init__(parent)
@@ -216,6 +217,7 @@ class TranslateWorker(QObject):
         self.cache = cache
         self.dictionary = dictionary
         self.cancel = cancel_event or threading.Event()
+        self.skip_dict = skip_dict
 
     def run(self) -> None:
         results: dict[str, str] = {}
@@ -225,13 +227,13 @@ class TranslateWorker(QObject):
             self.finished.emit({}, [])
             return
 
-        # 1) 缓存 + 离线词典
+        # 1) 缓存 + 离线词典（skip_dict=True 时跳过词典，仅缓存）
         todo: list[str] = []
         for t in self.entries:
             got = None
             if self.cfg.use_cache and self.cache is not None:
                 got = self.cache.get(t)
-            if got is None and self.dictionary is not None and self.dictionary.loaded:
+            if got is None and not self.skip_dict and self.dictionary is not None and self.dictionary.loaded:
                 got = self.dictionary.translate_entry(t)
             if got:
                 results[t] = got

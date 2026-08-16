@@ -42,7 +42,7 @@ from app import resources
 from app.ui import icons
 from app.ui.dialogs import DiffDialog, RandomBatchDialog, RandomPickDialog, confirm
 from app.ui.entry_model import EntryListModel, MODES
-from app.ui.entry_view import EntryListView
+from app.ui.entry_view import EntryListView, is_partial_translation
 from app.ui.phase4_dialogs import CompareDialog, MergeDialog, TagStatsDialog
 from app.ui.sidebar import SidebarPanel
 from app.ui.translate_dialogs import (
@@ -84,7 +84,7 @@ def default_txt_dir() -> Path | None:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Prompt Library Manager")
+        self.setWindowTitle("词库管理器")
         self.setMinimumSize(960, 600)
         self.resize(1280, 800)
         self.setAcceptDrops(True)
@@ -184,19 +184,17 @@ class MainWindow(QMainWindow):
         self.btn_filter.setProperty("bare", True)
         self.btn_random = QToolButton(text="🎲 随机")
         self.btn_random.setToolTip("随机抽取一条（Ctrl+R）")
-        self.btn_new_entry = QToolButton(text="新增")
-        self.btn_new_entry.setToolTip("在列表底部新增条目（Ctrl+N）")
         row1.addWidget(self.search_edit, 1)
         row1.addWidget(self.btn_filter)
         row1.addWidget(self.btn_random)
-        row1.addWidget(self.btn_new_entry)
         rlay.addLayout(row1)
 
         row2 = QHBoxLayout()
         row2.setSpacing(6)
+        self.btn_new_entry = QToolButton(text="新增")
+        self.btn_new_entry.setToolTip("在列表底部新增条目（Ctrl+N）")
         self.btn_import = QToolButton(text="导入")
         self.btn_export = QToolButton(text="导出")
-        self.btn_dedupe = QToolButton(text="去重")
         self.btn_batch = QToolButton(text="批量 ▾")
         self.btn_batch.setPopupMode(QToolButton.InstantPopup)
         self.btn_translate = QToolButton()
@@ -206,10 +204,13 @@ class MainWindow(QMainWindow):
         self.btn_translate.setIconSize(icons.QSIZE)
         self.btn_translate.setToolTip("翻译当前文件（仅翻译可见部分，滚动时继续）")
         self.btn_translate.setProperty("bare", True)
-        # 紧凑布局开关（紧挨翻译）
-        self.btn_compact = QToolButton(text="紧凑")
+        # 紧凑布局开关（图标，紧挨翻译）
+        self.btn_compact = QToolButton()
+        self.btn_compact.setIcon(icons.make_static_icon("compact"))
+        self.btn_compact.setIconSize(icons.QSIZE)
         self.btn_compact.setCheckable(True)
-        self.btn_compact.setToolTip("紧凑布局：英文紧邻中文（如 Simple background | 朴素的背景）")
+        self.btn_compact.setToolTip("紧凑布局：英文紧邻中文（如 1girl | 1女孩）")
+        self.btn_compact.setProperty("bare", True)
         # 排序图标（无容器）
         self.btn_sort = QToolButton()
         self.btn_sort.setIcon(icons.make_static_icon("sort"))
@@ -217,9 +218,9 @@ class MainWindow(QMainWindow):
         self.btn_sort.setPopupMode(QToolButton.InstantPopup)
         self.btn_sort.setToolTip("排序（A→Z / 中文拼音 / 随机…）")
         self.btn_sort.setProperty("bare", True)
+        row2.addWidget(self.btn_new_entry)
         row2.addWidget(self.btn_import)
         row2.addWidget(self.btn_export)
-        row2.addWidget(self.btn_dedupe)
         row2.addWidget(self.btn_batch)
         row2.addWidget(self.btn_compact)
         row2.addWidget(self.btn_translate)
@@ -267,7 +268,6 @@ class MainWindow(QMainWindow):
         self.btn_new_entry.clicked.connect(self.add_entry)
         self.btn_import.clicked.connect(self.import_txt)
         self.btn_export.clicked.connect(self.export_txt)
-        self.btn_dedupe.clicked.connect(self.dedupe)
         self.btn_delete.clicked.connect(self.delete_selected)
         self.btn_copy_sel.clicked.connect(self.copy_selected)
         self.btn_translate.clicked.connect(self._translate_file_lazy)
@@ -787,7 +787,7 @@ class MainWindow(QMainWindow):
         if self._translate_worker is not None:
             QMessageBox.information(self, "翻译", "已有翻译任务正在进行，请稍候。")
             return
-        worker = TranslateWorker(texts, self.ai_cfg, self.cache, self.dictionary, parent=self)
+        worker = TranslateWorker(texts, self.ai_cfg, self.cache, self.dictionary, skip_dict=True, parent=self)
         self._translate_worker = worker
         self._translate_ids = {}
         for e in self.library.entries:
@@ -895,32 +895,48 @@ class MainWindow(QMainWindow):
         texts = []
         for r in range(top, bottom + 1):
             e = self.model.entry_at(r)
-            if e is not None and not e.translation:
+            if e is None:
+                continue
+            # 未翻译，或离线词典只翻译了一部分（中英混杂）→ 需要翻译
+            if not e.translation or is_partial_translation(e.translation):
                 texts.append(e.text)
-        self._translate_silent(list(dict.fromkeys(texts)))
+        self._translate_silent(list(dict.fromkeys(texts)), replace_translated=True)
 
     def _translate_entry(self, eid: str) -> None:
-        """内联翻译按钮：翻译单个 tag。"""
+        """内联翻译按钮：未翻译走词典+AI；部分翻译走 AI 替换。"""
         if self.library is None:
             return
         e = self.library.get(eid)
-        if e is None or e.translation:
+        if e is None:
             return
-        self._translate_silent([e.text])
+        if e.translation:
+            self._translate_silent([e.text], replace_translated=True)
+        else:
+            self._translate_silent([e.text])
 
-    def _translate_silent(self, texts: list[str]) -> None:
-        """静默翻译一批（先离线词典/缓存，剩余走 AI，不弹进度框）。"""
+    def _translate_silent(self, texts: list[str], replace_translated: bool = False) -> None:
+        """静默翻译一批（不弹进度框）。
+
+        - 未翻译：缓存 / 离线词典优先，词典只部分命中时交给 AI 全量翻译。
+        - 已翻译（replace_translated=True）：用 AI 替换（跳过本地词典）。
+        """
         if not texts or self.library is None:
             return
         wanted = set(texts)
         changes = []
         ai_todo = []
         for e in self.library.entries:
-            if e.text not in wanted or e.translation:
+            if e.text not in wanted:
+                continue
+            if e.translation:
+                if replace_translated:
+                    ai_todo.append(e.text)  # 用 AI 替换已有翻译
                 continue
             got = self.cache.get(e.text) if self.ai_cfg.use_cache else None
             if got is None and self.dictionary.loaded:
                 got = self.dictionary.translate_entry(e.text)
+                if got is not None and is_partial_translation(got):
+                    got = None  # 词典部分命中 → 交给 AI
             if got:
                 changes.append((e.id, e.translation, got))
             else:
@@ -943,7 +959,9 @@ class MainWindow(QMainWindow):
             return
         if self._translate_worker is not None:
             return
-        worker = TranslateWorker(ai_todo, self.ai_cfg, self.cache, self.dictionary, parent=self)
+        worker = TranslateWorker(
+            ai_todo, self.ai_cfg, self.cache, self.dictionary, skip_dict=True, parent=self
+        )
         self._translate_worker = worker
         self._translate_ids = {}
         for e in self.library.entries:
@@ -1506,12 +1524,12 @@ class MainWindow(QMainWindow):
 
     def _update_title(self) -> None:
         if self.library is None:
-            self.setWindowTitle("Prompt Library Manager")
+            self.setWindowTitle("词库管理器")
             self.current_file_label.setText("未打开词库")
             self.current_file_label.setToolTip("")
             return
         mark = "● " if self.library.dirty else ""
-        self.setWindowTitle(f"{mark}{self.library.name()} — Prompt Library Manager")
+        self.setWindowTitle(f"{mark}{self.library.name()} — 词库管理器")
         self.current_file_label.setText(f"{mark}{self.library.name()}")
         self.current_file_label.setToolTip(str(self.library.path))
 
