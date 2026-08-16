@@ -1642,17 +1642,18 @@ class MainWindow(QMainWindow):
     def _about(self) -> None:
         QMessageBox.about(
             self,
-            "关于 Prompt Library Manager",
-            "Prompt / Tag 文本词库管理器（Phase 1-5）\n\n"
-            "用于管理 ComfyUI Wildcard / 文本列表词库的本地 TXT 工具。\n"
-            "整行 = 一个随机候选项，导出 TXT 只输出原始文本。\n\n"
-            "Phase 1：打开/搜索/增删改/批量删除/去重/排序/拖拽排序/\n"
-            "　　　　导入导出/随机抽取/Ctrl+S/Ctrl+Z/编码识别/外部修改检测\n"
-            "Phase 2：批量替换、跨词库复制/移动\n"
-            "Phase 3：双语显示、离线词典（Tags/zh-CN.txt）、在线翻译\n"
-            "　　　　（OpenAI 兼容 / 百度，带缓存）、翻译状态标记\n"
-            "Phase 4：CSV 英中导入导出、Tag 统计、词库合并、差异比较\n"
-            "Phase 5：虚拟列表性能优化、PyInstaller 桌面打包（build.bat）",
+            "关于 词库管理器",
+            "<b>词库管理器（Prompt Library Manager）</b><br><br>"
+            "用于管理 ComfyUI Wildcard / 文本列表词库的本地 TXT 工具。<br>"
+            "整行 = 一个随机候选项，导出 TXT 只输出原始文本。<br><br>"
+            "Phase 1：打开/搜索/增删改/批量删除/去重/排序/<br>"
+            "　　　　导入导出/随机抽取/编码识别/外部修改检测<br>"
+            "Phase 2：批量替换、跨词库复制/移动<br>"
+            "Phase 3：双语显示、离线词典、在线翻译、翻译状态标记<br>"
+            "Phase 4：CSV 英中导入导出、Tag 统计、词库合并、差异比较<br>"
+            "Phase 5：虚拟列表性能优化、桌面打包<br><br>"
+            'GitHub：<a href="https://github.com/befoer/prompt-library-manager">'
+            "https://github.com/befoer/prompt-library-manager</a>",
         )
 
     def _restore_settings(self) -> None:
