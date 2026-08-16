@@ -4,7 +4,7 @@ from __future__ import annotations
 import difflib
 import random
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -34,11 +34,13 @@ def confirm(parent, title: str, text: str, ok_text: str = "确定", cancel_text:
 
 
 class RandomPickDialog(QDialog):
-    """🎲 随机抽取 1 条。"""
+    """🎲 随机抽取 1 条（含翻译结果 / 翻译按钮）。"""
 
-    def __init__(self, model: EntryListModel, parent=None):
+    def __init__(self, model: EntryListModel, translate_fn, parent=None):
         super().__init__(parent)
         self.model = model
+        self.translate_fn = translate_fn  # 回调：translate_fn(entry_id)
+        self._current_id: str | None = None
         self.setWindowTitle("🎲 随机抽取")
         self.setMinimumWidth(560)
 
@@ -48,6 +50,19 @@ class RandomPickDialog(QDialog):
         self.text_label.setWordWrap(False)
         self.text_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         lay.addWidget(self.text_label)
+
+        # 翻译结果
+        self.trans_label = QLabel()
+        self.trans_label.setWordWrap(True)
+        self.trans_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.trans_label.setStyleSheet(
+            "color:#93a7b3; font-family:'Microsoft YaHei UI'; font-size:13px;"
+        )
+        lay.addWidget(self.trans_label)
+
+        self.btn_translate = QPushButton("翻译")
+        self.btn_translate.clicked.connect(self._translate)
+        lay.addWidget(self.btn_translate, 0, Qt.AlignLeft)
 
         hint = QLabel("从当前列表（含筛选结果）中随机抽取一条，整行为一个候选项。")
         hint.setStyleSheet("color:#9d9d9d;")
@@ -67,16 +82,53 @@ class RandomPickDialog(QDialog):
         self.btn_again.clicked.connect(self._pick)
         self.btn_copy.clicked.connect(self._copy)
         self.btn_close.clicked.connect(self.accept)
+
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(400)
+        self._poll_timer.timeout.connect(self._poll_translation)
         self._pick()
 
     def _pick(self) -> None:
-        texts = self.model.visible_texts()
-        if not texts:
+        self._poll_timer.stop()
+        visible = self.model.visible
+        if not visible:
             self.text_label.setText("（当前列表为空，无法抽取）")
+            self.trans_label.clear()
+            self.trans_label.setVisible(False)
+            self.btn_translate.setVisible(False)
             self.btn_again.setEnabled(False)
             return
         self.btn_again.setEnabled(True)
-        self.text_label.setText(random.choice(texts))
+        idx = random.choice(visible)
+        entry = self.model.library.entries[idx]
+        self._current_id = entry.id
+        self.text_label.setText(entry.text)
+        self._show_translation(entry.translation)
+
+    def _show_translation(self, translation: str) -> None:
+        if translation:
+            self.trans_label.setText(translation)
+            self.trans_label.setVisible(True)
+            self.btn_translate.setVisible(False)
+        else:
+            self.trans_label.setVisible(False)
+            self.btn_translate.setVisible(True)
+            self.btn_translate.setEnabled(True)
+            self.btn_translate.setText("翻译")
+
+    def _translate(self) -> None:
+        if self._current_id is None:
+            return
+        self.btn_translate.setEnabled(False)
+        self.btn_translate.setText("翻译中…")
+        self.translate_fn(self._current_id)
+        self._poll_timer.start()
+
+    def _poll_translation(self) -> None:
+        entry = self.model.library.get(self._current_id) if self._current_id else None
+        if entry is not None and entry.translation:
+            self._poll_timer.stop()
+            self._show_translation(entry.translation)
 
     def _copy(self) -> None:
         QApplication.clipboard().setText(self.text_label.text())

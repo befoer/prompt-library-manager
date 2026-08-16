@@ -44,7 +44,7 @@ class AIConfig:
     def validate(self) -> str | None:
         """返回错误信息；None 表示可用。"""
         if not self.enabled:
-            return "AI 翻译未启用（请在 翻译设置 中开启）"
+            return "在线翻译未启用（请在 翻译设置 中开启）"
         if self.provider == "openai":
             if not self.api_key:
                 return "未填写 API Key"
@@ -248,7 +248,7 @@ class TranslateWorker(QObject):
 
         # 2) AI 批量
         if not self.cfg.enabled:
-            errors.append(self.cfg.validate() or "AI 翻译未启用")
+            errors.append(self.cfg.validate() or "在线翻译未启用")
             self.finished.emit(results, errors)
             return
 

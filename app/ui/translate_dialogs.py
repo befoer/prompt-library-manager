@@ -39,7 +39,7 @@ class TranslationSettingsDialog(QDialog):
         self.cache = cache
 
         lay = QVBoxLayout(self)
-        self.chk_enable = QCheckBox("启用 AI 翻译")
+        self.chk_enable = QCheckBox("启用在线翻译")
         lay.addWidget(self.chk_enable)
 
         form = QFormLayout()

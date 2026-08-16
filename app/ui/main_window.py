@@ -365,9 +365,9 @@ class MainWindow(QMainWindow):
         # 翻译菜单（工具栏按钮 + 菜单栏共用同一组 action）
         a_offline = QAction("离线词典翻译选中", self)
         a_offline.triggered.connect(lambda: self.translate_selected(ai=False))
-        a_ai_sel = QAction("AI 翻译选中", self)
+        a_ai_sel = QAction("在线翻译选中", self)
         a_ai_sel.triggered.connect(lambda: self.translate_selected(ai=True))
-        a_ai_all = QAction("AI 翻译全部未翻译…", self)
+        a_ai_all = QAction("在线翻译全部未翻译…", self)
         a_ai_all.triggered.connect(self.translate_all_untranslated)
         a_edit_tr = QAction("编辑翻译…", self)
         a_edit_tr.triggered.connect(self.edit_translation)
@@ -793,7 +793,7 @@ class MainWindow(QMainWindow):
         for e in self.library.entries:
             self._translate_ids.setdefault(e.text, []).append(e.id)
         dlg = QProgressDialog("准备翻译…", "取消", 0, len(texts), self)
-        dlg.setWindowTitle("AI 批量翻译")
+        dlg.setWindowTitle("在线批量翻译")
         dlg.setWindowModality(Qt.WindowModal)
         dlg.setMinimumDuration(0)
         dlg.canceled.connect(worker.cancel.set)
@@ -825,7 +825,7 @@ class MainWindow(QMainWindow):
                     changes.append((eid, entry.translation, zh))
         if changes and self.library is not None:
             self.library.undo_stack.push(
-                SetTranslationsCommand(self.library, changes, f"AI 翻译 {len(changes)} 条")
+                SetTranslationsCommand(self.library, changes, f"在线翻译 {len(changes)} 条")
             )
         if self.library is not None:
             self._flush_sidecar()
@@ -954,7 +954,7 @@ class MainWindow(QMainWindow):
             return
         if not self.ai_cfg.enabled:
             self.statusBar().showMessage(
-                f"离线命中 {len(changes)} 条；{len(ai_todo)} 条需 AI（未启用）", 5000
+                f"离线命中 {len(changes)} 条；{len(ai_todo)} 条需在线翻译（未启用）", 5000
             )
             return
         if self._translate_worker is not None:
@@ -968,7 +968,7 @@ class MainWindow(QMainWindow):
             self._translate_ids.setdefault(e.text, []).append(e.id)
         worker.finished.connect(self._on_translate_finished)
         threading.Thread(target=worker.run, daemon=True).start()
-        self.statusBar().showMessage(f"AI 翻译中… {len(ai_todo)} 条", 3000)
+        self.statusBar().showMessage(f"在线翻译中… {len(ai_todo)} 条", 3000)
 
     def edit_translation(self) -> None:
         if self.library is None or self.model is None:
@@ -1309,7 +1309,7 @@ class MainWindow(QMainWindow):
         if self.model is None or self.model.rowCount() == 0:
             QMessageBox.information(self, "随机抽取", "当前列表为空，无法抽取。")
             return
-        RandomPickDialog(self.model, self).exec()
+        RandomPickDialog(self.model, self._translate_entry, self).exec()
 
     def random_pick_batch(self) -> None:
         if self.model is None or self.model.rowCount() == 0:
@@ -1587,7 +1587,7 @@ class MainWindow(QMainWindow):
             menu.addAction("编辑", lambda: self.entry_view.edit(index))
             menu.addAction("复制", lambda: QApplication.clipboard().setText(text))
             menu.addSeparator()
-            menu.addAction("AI 翻译", lambda: self.translate_selected(ai=True))
+            menu.addAction("在线翻译", lambda: self.translate_selected(ai=True))
             menu.addAction("离线词典翻译", lambda: self.translate_selected(ai=False))
             menu.addAction("编辑翻译…", self.edit_translation)
             menu.addAction("复制到其他词库…", lambda: self.move_copy_entries())
@@ -1597,7 +1597,7 @@ class MainWindow(QMainWindow):
         elif len(rows) > 1:
             texts = "\n".join(self.model.entry_at(r).text for r in rows)
             menu.addAction(f"复制 {len(rows)} 条", lambda: QApplication.clipboard().setText(texts))
-            menu.addAction(f"AI 翻译 {len(rows)} 条", lambda: self.translate_selected(ai=True))
+            menu.addAction(f"在线翻译 {len(rows)} 条", lambda: self.translate_selected(ai=True))
             menu.addAction("复制到其他词库…", lambda: self.move_copy_entries())
             menu.addAction("移动到其他词库…", lambda: self.move_copy_entries(move=True))
             menu.addSeparator()
@@ -1618,7 +1618,7 @@ class MainWindow(QMainWindow):
             "Phase 1：打开/搜索/增删改/批量删除/去重/排序/拖拽排序/\n"
             "　　　　导入导出/随机抽取/Ctrl+S/Ctrl+Z/编码识别/外部修改检测\n"
             "Phase 2：批量替换、跨词库复制/移动\n"
-            "Phase 3：双语显示、离线词典（Tags/zh-CN.txt）、AI 翻译\n"
+            "Phase 3：双语显示、离线词典（Tags/zh-CN.txt）、在线翻译\n"
             "　　　　（OpenAI 兼容 / 百度，带缓存）、翻译状态标记\n"
             "Phase 4：CSV 英中导入导出、Tag 统计、词库合并、差异比较\n"
             "Phase 5：虚拟列表性能优化、PyInstaller 桌面打包（build.bat）",

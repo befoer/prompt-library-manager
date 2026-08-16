@@ -169,7 +169,8 @@ class EntryDelegate(QStyledItemDelegate):
                             max(0, total.right() - en_rect.right() - sep_w), total.height())
             if entry is not None and entry.translation:
                 zh = entry.translation + (" ⚠ 需更新" if entry.translation_dirty else "")
-                self._draw_line(painter, option, zh_rect, zh, 10, zh_color,
+                r = zh_rect.adjusted(18, 0, 0, 0) if is_partial_translation(entry.translation) else zh_rect
+                self._draw_line(painter, option, r, zh, 10, zh_color,
                                 family="Microsoft YaHei UI")
         else:
             # 分栏布局：英文左栏 + 中文右栏（固定比例 + 分隔线）
@@ -186,7 +187,8 @@ class EntryDelegate(QStyledItemDelegate):
 
             if entry is not None and entry.translation:
                 zh = entry.translation + (" ⚠ 需更新" if entry.translation_dirty else "")
-                self._draw_line(painter, option, right_rect, zh, 10, zh_color,
+                r = right_rect.adjusted(18, 0, 0, 0) if is_partial_translation(entry.translation) else right_rect
+                self._draw_line(painter, option, r, zh, 10, zh_color,
                                 family="Microsoft YaHei UI")
 
         # 未翻译 / 部分翻译：中文栏起始处显示翻译按钮
