@@ -20,13 +20,6 @@ def main() -> int:
     app.setStyle("Fusion")
     app.setFont(QFont("Microsoft YaHei UI", 9))
 
-    # 关闭 PyInstaller 解压启动图（若存在），换用下方与之完全一致的启动屏
-    try:
-        import pyi_splash  # type: ignore
-        pyi_splash.close()
-    except ImportError:
-        pass
-
     # 启动屏：直接加载与解压阶段同一张 splash.png，避免大小/外观跳变
     from app import resources
     splash = QSplashScreen()
@@ -39,6 +32,13 @@ def main() -> int:
         splash.setPixmap(fallback)
     splash.show()
     app.processEvents()
+
+    # 关闭 PyInstaller 解压启动图（Qt 启动屏已显示，避免中间消失）
+    try:
+        import pyi_splash  # type: ignore
+        pyi_splash.close()
+    except ImportError:
+        pass
 
     # 再导入重型模块（启动屏覆盖这段加载时间）
     from app.ui import theme
