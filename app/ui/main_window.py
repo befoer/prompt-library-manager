@@ -102,10 +102,6 @@ class MainWindow(QMainWindow):
         self.dictionary = OfflineDictionary(
             [Path(dict_override)] if dict_override else default_tags_dirs()
         )
-        try:
-            self.dictionary.load()
-        except Exception:
-            pass
         self.cache = TranslationCache()
         self._translate_worker = None
         self._translate_progress = None
@@ -138,7 +134,15 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._build_actions()
         self._restore_settings()
-        self._on_dict_loaded()
+
+        # 词典后台加载，不阻塞界面显示
+        self.status_dict.setText("词典 加载中…")
+        self.status_dict.setToolTip("正在加载离线词典（zh-CN.txt + danbooru/e621 别名表）")
+        self._dict_timer = QTimer(self)
+        self._dict_timer.setInterval(120)
+        self._dict_timer.timeout.connect(self._check_dict_loaded)
+        threading.Thread(target=self._load_dictionary, daemon=True).start()
+        self._dict_timer.start()
 
         last = self.settings.value("last_folder", "")
         if last and Path(last).is_dir():
@@ -226,6 +230,8 @@ class MainWindow(QMainWindow):
         self.btn_copy_sel = QToolButton(text="复制选中")
         self.btn_copy_sel.setToolTip("复制选中的条目到剪贴板（每行一个）")
         self.btn_delete = QToolButton(text="删除选中")
+        for _b in (self.btn_clear_sel, self.btn_copy_sel, self.btn_delete):
+            _b.setEnabled(False)
         row2.addWidget(self.btn_clear_sel)
         row2.addWidget(self.btn_copy_sel)
         row2.addWidget(self.btn_delete)
@@ -270,6 +276,7 @@ class MainWindow(QMainWindow):
         self.entry_view.translate_requested.connect(self._translate_entry)
         self.entry_view.customContextMenuRequested.connect(self._entry_context_menu)
         self.entry_view.verticalScrollBar().valueChanged.connect(self._on_scroll)
+        self.entry_view.selection_changed.connect(self._update_selection_buttons)
         self.btn_compact.toggled.connect(self._on_compact_toggled)
         self.btn_clear_sel.clicked.connect(self._clear_selection)
         # 筛选方式菜单（漏斗）
@@ -697,6 +704,21 @@ class MainWindow(QMainWindow):
         s.setValue("translate/batch_size", c.batch_size)
         s.setValue("translate/baidu_appid", c.baidu_appid)
         s.setValue("translate/baidu_secret", c.baidu_secret)
+
+    def _load_dictionary(self) -> None:
+        try:
+            self.dictionary.load()
+        except Exception:
+            pass
+
+    def _check_dict_loaded(self) -> None:
+        if not self.dictionary.loaded:
+            return
+        self._dict_timer.stop()
+        self._on_dict_loaded()
+        # 词典加载完成后，对已打开的词库补一次自动离线翻译
+        if self.library is not None:
+            self._auto_offline_translate()
 
     def _on_dict_loaded(self) -> None:
         d = self.dictionary
@@ -1331,6 +1353,13 @@ class MainWindow(QMainWindow):
     def _clear_selection(self) -> None:
         self.entry_view.clearSelection()
         self.entry_view.setFocus()
+
+    def _update_selection_buttons(self, *_args) -> None:
+        """无选中时禁用取消选中 / 复制选中 / 删除选中。"""
+        has_sel = self.entry_view.selectionModel().hasSelection()
+        self.btn_clear_sel.setEnabled(has_sel)
+        self.btn_copy_sel.setEnabled(has_sel)
+        self.btn_delete.setEnabled(has_sel)
 
     # ================= 最近打开 =================
 

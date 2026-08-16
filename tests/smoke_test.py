@@ -15,6 +15,7 @@ import shutil
 import sys
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -299,6 +300,13 @@ def main() -> int:
         check("侧栏文件数", win.sidebar.list.count() == 3)
         total0 = win.library.counts()["total"]
         check("示例词库非空", total0 > 0)
+        # 词典后台加载，等待加载完成后自动离线翻译才会生效
+        for _ in range(200):
+            app.processEvents()
+            if win.dictionary.loaded:
+                break
+            time.sleep(0.02)
+        win._check_dict_loaded()  # 触发词典加载完成后的自动翻译
         check("打开自动离线翻译", win.library.counts()["translated"] > 0)
 
         win.add_entry()

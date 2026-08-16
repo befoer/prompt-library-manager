@@ -62,6 +62,11 @@ def checkbox_rect_for_rect(r: QRect) -> QRect:
     return QRect(r.left() + CHECKBOX_X, r.center().y() - size // 2, size, size)
 
 
+def checkbox_click_rect(r: QRect) -> QRect:
+    """复选框的点击命中区（比绘制框略大，方便点选）。"""
+    return checkbox_rect_for_rect(r).adjusted(-3, -4, 3, 4)
+
+
 def translate_button_rect(rect: QRect, text: str, layout: str, font) -> QRect:
     """未翻译条目中文栏起始处的翻译按钮位置（绘制与点击检测共用）。"""
     total = rect.adjusted(TEXT_X, 0, -4, 0)
@@ -227,6 +232,7 @@ class EntryListView(QListView):
     delete_requested = Signal()
     clear_search_requested = Signal()
     translate_requested = Signal(str)   # entry_id
+    selection_changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -263,6 +269,7 @@ class EntryListView(QListView):
     def selectionChanged(self, selected, deselected) -> None:
         super().selectionChanged(selected, deselected)
         self.viewport().update()  # 刷新复选框镜像
+        self.selection_changed.emit()
 
     def keyPressEvent(self, event) -> None:
         key = event.key()
@@ -287,19 +294,23 @@ class EntryListView(QListView):
                 return  # 点击空白处不清空选择
             entry = idx.data(ENTRY_ROLE)
             text = idx.data(Qt.DisplayRole) or ""
-            # 点击未翻译条目的翻译按钮 → 翻译该条
+            # 1) 点击未翻译条目的翻译按钮 → 翻译该条
             if entry is not None and not entry.translation:
                 btn = translate_button_rect(self.visualRect(idx), text,
                                             self.itemDelegate().layout, self.font())
                 if btn.contains(event.pos()):
                     self.translate_requested.emit(entry.id)
                     return
-            # 多选：点击切换选中（再点已选中的 = 取消该条）
-            if sel.isSelected(idx):
-                sel.select(idx, QItemSelectionModel.Deselect | QItemSelectionModel.Rows)
-            else:
-                sel.select(idx, QItemSelectionModel.Select | QItemSelectionModel.Rows)
-            # 只更新当前项，不改动选择（setCurrentIndex 会触发 ClearAndSelect，必须用 NoUpdate）
+            # 2) 只有点击前面的复选框才切换选中
+            cb = checkbox_click_rect(self.visualRect(idx))
+            if cb.contains(event.pos()):
+                if sel.isSelected(idx):
+                    sel.select(idx, QItemSelectionModel.Deselect | QItemSelectionModel.Rows)
+                else:
+                    sel.select(idx, QItemSelectionModel.Select | QItemSelectionModel.Rows)
+                sel.setCurrentIndex(idx, QItemSelectionModel.NoUpdate)
+                return
+            # 3) 点击英文等其他区域：只设为当前项，不改选择
             sel.setCurrentIndex(idx, QItemSelectionModel.NoUpdate)
             return
         super().mousePressEvent(event)
@@ -315,3 +326,12 @@ class EntryListView(QListView):
         if event.button() == Qt.LeftButton:
             return
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        # 双击英文/任意区域直接进入编辑（不依赖基类的 pressedIndex，因为点击逻辑已自绘）
+        if event.button() == Qt.LeftButton:
+            idx = self.indexAt(event.pos())
+            if idx.isValid():
+                self.edit(idx)
+                return
+        super().mouseDoubleClickEvent(event)
