@@ -52,6 +52,8 @@ from app.ui.translate_dialogs import (
     TranslationSettingsDialog,
 )
 
+APP_VERSION = "v1.0.0"
+
 SORT_MODES = [
     ("original", "原始顺序"),
     ("alpha_asc", "A → Z"),
@@ -84,7 +86,7 @@ def default_txt_dir() -> Path | None:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("词库管理器")
+        self.setWindowTitle(f"词库管理器 {APP_VERSION}")
         self.setMinimumSize(960, 600)
         self.resize(1280, 800)
         self.setAcceptDrops(True)
@@ -1554,12 +1556,12 @@ class MainWindow(QMainWindow):
 
     def _update_title(self) -> None:
         if self.library is None:
-            self.setWindowTitle("词库管理器")
+            self.setWindowTitle(f"词库管理器 {APP_VERSION}")
             self.current_file_label.setText("未打开词库")
             self.current_file_label.setToolTip("")
             return
         mark = "● " if self.library.dirty else ""
-        self.setWindowTitle(f"{mark}{self.library.name()} — 词库管理器")
+        self.setWindowTitle(f"{mark}{self.library.name()} — 词库管理器 {APP_VERSION}")
         self.current_file_label.setText(f"{mark}{self.library.name()}")
         self.current_file_label.setToolTip(str(self.library.path))
 
@@ -1642,7 +1644,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "帮助",
-            "<b>词库管理器（Prompt Library Manager）</b><br><br>"
+            f"<b>词库管理器（Prompt Library Manager）</b> {APP_VERSION}<br><br>"
             "用于管理 ComfyUI Wildcard / 文本列表词库的本地 TXT 工具。<br>"
             "整行 = 一个随机候选项，导出 TXT 只输出原始文本。<br><br>"
             "Phase 1：打开/搜索/增删改/批量删除/去重/排序/<br>"
