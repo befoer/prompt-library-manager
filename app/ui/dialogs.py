@@ -7,17 +7,17 @@ import random
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QDialog,
-    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
-    QRadioButton,
     QSpinBox,
     QVBoxLayout,
+    QWidget,
 )
 
 from app.ui.entry_model import EntryListModel
@@ -42,26 +42,50 @@ class ExportDialog(QDialog):
     def __init__(self, default_sep: str = ", ", parent=None):
         super().__init__(parent)
         self.setWindowTitle("导出 TXT")
-        self.setMinimumWidth(440)
+        self.setMinimumWidth(460)
 
         lay = QVBoxLayout(self)
 
-        self.radio_direct = QRadioButton("直接导出（仅原文）")
-        self.radio_with_zh = QRadioButton("原文 + 中文翻译")
-        self.radio_direct.setChecked(True)
-        lay.addWidget(self.radio_direct)
-        lay.addWidget(self.radio_with_zh)
+        # 格式选择：两个可点击的切换按钮（更直观）
+        self.btn_direct = QPushButton("直接导出（仅原文）")
+        self.btn_with_zh = QPushButton("原文 + 中文翻译")
+        for b in (self.btn_direct, self.btn_with_zh):
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setStyleSheet(
+                "QPushButton { padding:7px 14px; border:1px solid #3c3c3c; "
+                "border-radius:4px; background:#2d2d2d; color:#d4d4d4; }"
+                "QPushButton:checked { background:#094771; color:#ffffff; "
+                "border:1px solid #4fc3f7; font-weight:600; }"
+            )
+        self.btn_direct.setChecked(True)
+        self.fmt_group = QButtonGroup(self)
+        self.fmt_group.setExclusive(True)
+        self.fmt_group.addButton(self.btn_direct)
+        self.fmt_group.addButton(self.btn_with_zh)
 
-        form = QFormLayout()
+        fmt_row = QHBoxLayout()
+        fmt_row.addWidget(self.btn_direct)
+        fmt_row.addWidget(self.btn_with_zh)
+        fmt_row.addStretch(1)
+        lay.addLayout(fmt_row)
+
+        # 分隔符（仅"原文 + 中文翻译"时显示）
+        self.sep_widget = QWidget()
+        sep_row = QHBoxLayout(self.sep_widget)
+        sep_row.setContentsMargins(0, 6, 0, 0)
+        sep_row.addWidget(QLabel("分隔符："))
         self.edit_sep = QLineEdit(default_sep)
         self.edit_sep.setToolTip("原文与中文翻译之间的分隔符")
-        form.addRow("分隔符：", self.edit_sep)
-        lay.addLayout(form)
+        sep_row.addWidget(self.edit_sep)
+        lay.addWidget(self.sep_widget)
 
+        # 预览
         self.lbl_preview = QLabel()
         self.lbl_preview.setStyleSheet("color:#93a7b3;")
         lay.addWidget(self.lbl_preview)
 
+        # 按钮
         row = QHBoxLayout()
         btn_ok = QPushButton("导出")
         btn_cancel = QPushButton("取消")
@@ -74,13 +98,13 @@ class ExportDialog(QDialog):
         btn_ok.clicked.connect(self.accept)
         btn_cancel.clicked.connect(self.reject)
 
-        self.radio_direct.toggled.connect(self._update)
+        self.btn_direct.toggled.connect(self._update)
         self.edit_sep.textChanged.connect(self._update)
         self._update()
 
     def _update(self) -> None:
-        with_zh = self.radio_with_zh.isChecked()
-        self.edit_sep.setEnabled(with_zh)
+        with_zh = self.btn_with_zh.isChecked()
+        self.sep_widget.setVisible(with_zh)
         if with_zh:
             self.lbl_preview.setText(f"预览：1girl{self.edit_sep.text()}1女孩")
         else:
@@ -88,7 +112,7 @@ class ExportDialog(QDialog):
 
     def result(self) -> tuple[str, str]:
         """返回 (format, separator)。format 为 'direct' 或 'with_zh'。"""
-        fmt = "with_zh" if self.radio_with_zh.isChecked() else "direct"
+        fmt = "with_zh" if self.btn_with_zh.isChecked() else "direct"
         return fmt, self.edit_sep.text()
 
 
