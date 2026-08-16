@@ -76,7 +76,9 @@ def translate_button_rect(rect: QRect, text: str, layout: str, font) -> QRect:
         probe = QFont(font)
         probe.setPointSizeF(10.5)
         en_w = min(QFontMetrics(probe).horizontalAdvance(text), int(total.width() * 0.6))
-        sep_w = QFontMetrics(probe).horizontalAdvance(" | ")
+        sepf = QFont(font)
+        sepf.setPointSizeF(10)
+        sep_w = QFontMetrics(sepf).horizontalAdvance(" | ")
         x = total.left() + en_w + sep_w + 2
     else:
         left_w = int(total.width() * SPLIT_RATIO) - DIVIDER_GAP // 2
@@ -170,7 +172,7 @@ class EntryDelegate(QStyledItemDelegate):
                             max(0, total.right() - en_rect.right() - sep_w), total.height())
             if entry is not None and entry.translation:
                 zh = entry.translation + (" ⚠ 需更新" if entry.translation_dirty else "")
-                r = zh_rect.adjusted(18, 0, 0, 0) if is_partial_translation(entry.translation) else zh_rect
+                r = zh_rect.adjusted(22, 0, 0, 0) if is_partial_translation(entry.translation) else zh_rect
                 hl_zh = match_range(entry.translation, query, mode) if query and scope in ("translation", "both") else None
                 self._draw_line(painter, option, r, zh, 10, zh_color,
                                 family="Microsoft YaHei UI", hl=hl_zh)
@@ -189,7 +191,7 @@ class EntryDelegate(QStyledItemDelegate):
 
             if entry is not None and entry.translation:
                 zh = entry.translation + (" ⚠ 需更新" if entry.translation_dirty else "")
-                r = right_rect.adjusted(18, 0, 0, 0) if is_partial_translation(entry.translation) else right_rect
+                r = right_rect.adjusted(22, 0, 0, 0) if is_partial_translation(entry.translation) else right_rect
                 hl_zh = match_range(entry.translation, query, mode) if query and scope in ("translation", "both") else None
                 self._draw_line(painter, option, r, zh, 10, zh_color,
                                 family="Microsoft YaHei UI", hl=hl_zh)
