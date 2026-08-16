@@ -323,7 +323,6 @@ class MainWindow(QMainWindow):
         m_file = mb.addMenu("文件(&F)")
         m_edit = mb.addMenu("编辑(&E)")
         m_tool = mb.addMenu("工具(&T)")
-        m_help = mb.addMenu("帮助(&H)")
 
         def act(parent, text, shortcut, handler):
             a = QAction(text, self)
@@ -398,7 +397,7 @@ class MainWindow(QMainWindow):
         m_translate.addSeparator()
         m_translate.addAction(a_tr_cfg)
 
-        act(m_help, "关于", "F1", self._about)
+        act(mb, "帮助(&H)", "F1", self._help)
 
         # Ctrl+F 聚焦搜索框
         self.act_focus_search = QAction(self)
@@ -1639,10 +1638,10 @@ class MainWindow(QMainWindow):
 
     # ================= 其他 =================
 
-    def _about(self) -> None:
+    def _help(self) -> None:
         QMessageBox.about(
             self,
-            "关于 词库管理器",
+            "帮助",
             "<b>词库管理器（Prompt Library Manager）</b><br><br>"
             "用于管理 ComfyUI Wildcard / 文本列表词库的本地 TXT 工具。<br>"
             "整行 = 一个随机候选项，导出 TXT 只输出原始文本。<br><br>"
