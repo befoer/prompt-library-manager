@@ -6,6 +6,8 @@
 > **一行 = 一个随机候选项**。`Fantasy Room, messy room, Strange Plants` 是一整行，就是一个候选项，
 > 绝不把行内逗号拆开，导出 TXT 时也只输出原始文本（不输出 JSON / 翻译 / ID）。
 
+![软件预览](assets/screenshot.jpg)
+
 ---
 
 ## 快速开始
