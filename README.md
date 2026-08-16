@@ -10,19 +10,15 @@
 
 ## 快速开始
 
-需要 **Python 3.10+**（[python.org](https://www.python.org/downloads/) 下载，安装时勾选 "Add to PATH"）。
+**绿色免安装**：解压 `词库管理器.zip`，进入文件夹双击 `PromptLibraryManager.exe` 即可运行，无需安装 Python。
 
-```bat
-pip install -r requirements.txt
-python main.py
-```
-
-或直接双击 `启动词库管理器.bat`（首次运行会自动安装依赖）。
-
+- 文件夹形式：`PromptLibraryManager.exe` + `_internal\` 依赖目录（整体拷贝即可）
 - `Tags\` 为离线翻译词典，可直接增删修改
 - `txt\` 为词库文件夹（放你的 TXT 词库，也可用菜单打开任意文件夹）
 
 技术栈：Python 3.10+ / PySide6（Qt）。纯本地运行，无云依赖。
+
+> **从源码运行**（开发者）：需 Python 3.10+，先 `pip install -r requirements.txt`，再 `python main.py`。
 
 ---
 
@@ -98,8 +94,7 @@ python main.py
 
 ```
 词库管理器/
-├── 启动词库管理器.bat         # 一键启动（首次自动装依赖）
-├── main.py                    # 入口
+├── main.py                    # 入口（源码运行用）
 ├── requirements.txt
 ├── txt/                       # 词库文件夹（用户数据）
 │   └── *.txt
