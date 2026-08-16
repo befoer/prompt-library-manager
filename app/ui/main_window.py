@@ -40,7 +40,7 @@ from app.core.dictionary import OfflineDictionary, default_tags_dirs
 from app.core.model import Library
 from app import resources
 from app.ui import icons
-from app.ui.dialogs import DiffDialog, RandomBatchDialog, RandomPickDialog, confirm
+from app.ui.dialogs import DiffDialog, ExportDialog, RandomBatchDialog, RandomPickDialog, confirm
 from app.ui.entry_model import EntryListModel, MODES
 from app.ui.entry_view import EntryListView, is_partial_translation
 from app.ui.phase4_dialogs import CompareDialog, MergeDialog, TagStatsDialog
@@ -661,6 +661,13 @@ class MainWindow(QMainWindow):
         if self.library is None:
             QMessageBox.information(self, "提示", "请先打开一个词库。")
             return
+        sep_default = str(self.settings.value("export/separator", ", "))
+        dlg = ExportDialog(sep_default, self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        fmt, sep = dlg.result()
+        self.settings.setValue("export/separator", sep)
+
         default = self.library.path.name if self.library.path else "export.txt"
         path, _ = QFileDialog.getSaveFileName(
             self, "导出 TXT", str(Path(default)), "文本文件 (*.txt)"
@@ -668,7 +675,14 @@ class MainWindow(QMainWindow):
         if not path:
             return
         try:
-            io.write_text_atomic(Path(path), [e.text for e in self.library.entries], encoding="utf-8")
+            if fmt == "direct":
+                lines = [e.text for e in self.library.entries]
+            else:
+                lines = [
+                    f"{e.text}{sep}{e.translation}" if e.translation else e.text
+                    for e in self.library.entries
+                ]
+            io.write_text_atomic(Path(path), lines, encoding="utf-8")
         except OSError as e:
             QMessageBox.critical(self, "导出失败", str(e))
             return

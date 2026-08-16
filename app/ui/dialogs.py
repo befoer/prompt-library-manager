@@ -8,11 +8,14 @@ from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QRadioButton,
     QSpinBox,
     QVBoxLayout,
 )
@@ -31,6 +34,62 @@ def confirm(parent, title: str, text: str, ok_text: str = "确定", cancel_text:
     box.setDefaultButton(ok_btn)
     box.exec()
     return box.clickedButton() is ok_btn
+
+
+class ExportDialog(QDialog):
+    """导出 TXT：选择格式（直接导出 / 附带中文翻译）与分隔符。"""
+
+    def __init__(self, default_sep: str = ", ", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("导出 TXT")
+        self.setMinimumWidth(440)
+
+        lay = QVBoxLayout(self)
+
+        self.radio_direct = QRadioButton("直接导出（仅原文）")
+        self.radio_with_zh = QRadioButton("原文 + 中文翻译")
+        self.radio_direct.setChecked(True)
+        lay.addWidget(self.radio_direct)
+        lay.addWidget(self.radio_with_zh)
+
+        form = QFormLayout()
+        self.edit_sep = QLineEdit(default_sep)
+        self.edit_sep.setToolTip("原文与中文翻译之间的分隔符")
+        form.addRow("分隔符：", self.edit_sep)
+        lay.addLayout(form)
+
+        self.lbl_preview = QLabel()
+        self.lbl_preview.setStyleSheet("color:#93a7b3;")
+        lay.addWidget(self.lbl_preview)
+
+        row = QHBoxLayout()
+        btn_ok = QPushButton("导出")
+        btn_cancel = QPushButton("取消")
+        btn_ok.setDefault(True)
+        row.addStretch(1)
+        row.addWidget(btn_ok)
+        row.addWidget(btn_cancel)
+        lay.addLayout(row)
+
+        btn_ok.clicked.connect(self.accept)
+        btn_cancel.clicked.connect(self.reject)
+
+        self.radio_direct.toggled.connect(self._update)
+        self.edit_sep.textChanged.connect(self._update)
+        self._update()
+
+    def _update(self) -> None:
+        with_zh = self.radio_with_zh.isChecked()
+        self.edit_sep.setEnabled(with_zh)
+        if with_zh:
+            self.lbl_preview.setText(f"预览：1girl{self.edit_sep.text()}1女孩")
+        else:
+            self.lbl_preview.setText("预览：1girl")
+
+    def result(self) -> tuple[str, str]:
+        """返回 (format, separator)。format 为 'direct' 或 'with_zh'。"""
+        fmt = "with_zh" if self.radio_with_zh.isChecked() else "direct"
+        return fmt, self.edit_sep.text()
 
 
 class RandomPickDialog(QDialog):
