@@ -10,11 +10,17 @@
 
 ## 快速开始
 
-**绿色免安装**：解压后双击 `PromptLibraryManager.exe` 即可运行，无需安装 Python。
+需要 **Python 3.10+**（[python.org](https://www.python.org/downloads/) 下载，安装时勾选 "Add to PATH"）。
 
-- 单文件程序，首次启动会解压到临时目录（稍慢几秒），之后正常运行
-- 程序自动加载同目录下的 `txt\` 词库文件夹（也可用菜单打开任意文件夹）
-- 应用图标内嵌于程序，词典数据（离线翻译）已打包在内
+```bat
+pip install -r requirements.txt
+python main.py
+```
+
+或直接双击 `启动词库管理器.bat`（首次运行会自动安装依赖）。
+
+- `Tags\` 为离线翻译词典，可直接增删修改
+- `txt\` 为词库文件夹（放你的 TXT 词库，也可用菜单打开任意文件夹）
 
 技术栈：Python 3.10+ / PySide6（Qt）。纯本地运行，无云依赖。
 
@@ -92,11 +98,16 @@
 
 ```
 词库管理器/
-├── PromptLibraryManager.exe   # 单文件程序（免安装）
+├── 启动词库管理器.bat         # 一键启动（首次自动装依赖）
+├── main.py                    # 入口
+├── requirements.txt
 ├── txt/                       # 词库文件夹（用户数据）
 │   └── *.txt
-├── main.py                    # 入口（源码运行用）
-├── requirements.txt
+├── Tags/                      # 离线翻译词典（用户可自行修改）
+│   ├── zh-CN.txt
+│   ├── danbooru.csv
+│   └── e621.csv
+├── assets/                    # 图标资源（icon.png / icon.ico / 翻译.svg / splash.png）
 ├── app/
 │   ├── resources.py           # 资源定位（图标等）
 │   ├── core/
@@ -115,9 +126,7 @@
 │       ├── icons.py           # 程序化绘制的图标
 │       ├── translate_dialogs.py  # 翻译设置 / 批量替换 / 复制移动
 │       └── theme.py           # 深色主题样式
-├── assets/                    # 图标资源（icon.png / icon.ico / 翻译.svg）
-├── tests/smoke_test.py        # 冒烟测试（95 项）
-└── Tags/                      # 翻译词典资源（用户数据）
+└── tests/smoke_test.py        # 冒烟测试（95 项）
 ```
 
 ---
@@ -130,21 +139,3 @@ python tests/smoke_test.py
 
 覆盖：编码识别、CRUD 与撤销、排序去重、过滤、离线词典、翻译命令与旁车、
 翻译缓存、批量替换、跨词库复制移动、在线翻译接口（本地 mock 服务器）、GUI 双语流程。
-
----
-
-## 从源码打包
-
-```bat
-pip install -r requirements.txt pyinstaller
-python -m PyInstaller -w --onefile -n PromptLibraryManager ^
-    --icon assets\icon.ico ^
-    --add-data "assets\icon.png;assets" ^
-    --add-data "assets\翻译.svg;assets" ^
-    --add-data "Tags\zh-CN.txt;Tags" ^
-    --add-data "Tags\danbooru.csv;Tags" ^
-    --add-data "Tags\e621.csv;Tags" ^
-    main.py
-```
-
-生成单文件 `dist\PromptLibraryManager.exe`。
