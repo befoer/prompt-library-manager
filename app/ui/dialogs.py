@@ -39,8 +39,9 @@ def confirm(parent, title: str, text: str, ok_text: str = "确定", cancel_text:
 class ExportDialog(QDialog):
     """导出 TXT：选择格式（直接导出 / 附带中文翻译）与分隔符。"""
 
-    def __init__(self, default_sep: str = ", ", parent=None):
+    def __init__(self, entries, default_sep: str = ", ", parent=None):
         super().__init__(parent)
+        self._preview = list(entries[:2])
         self.setWindowTitle("导出 TXT")
         self.setMinimumWidth(460)
 
@@ -105,10 +106,15 @@ class ExportDialog(QDialog):
     def _update(self) -> None:
         with_zh = self.btn_with_zh.isChecked()
         self.sep_widget.setVisible(with_zh)
-        if with_zh:
-            self.lbl_preview.setText(f"预览：1girl{self.edit_sep.text()}1女孩")
-        else:
-            self.lbl_preview.setText("预览：1girl")
+        sep = self.edit_sep.text()
+        lines = []
+        for e in self._preview:
+            if with_zh and e.translation:
+                lines.append(f"{e.text}{sep}{e.translation}")
+            else:
+                lines.append(e.text)
+        lines.append("...")
+        self.lbl_preview.setText("预览：\n" + "\n".join(lines))
 
     def result(self) -> tuple[str, str]:
         """返回 (format, separator)。format 为 'direct' 或 'with_zh'。"""

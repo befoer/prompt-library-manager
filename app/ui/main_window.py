@@ -662,7 +662,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "提示", "请先打开一个词库。")
             return
         sep_default = str(self.settings.value("export/separator", ", "))
-        dlg = ExportDialog(sep_default, self)
+        dlg = ExportDialog(self.library.entries, sep_default, self)
         if dlg.exec() != QDialog.Accepted:
             return
         fmt, sep = dlg.result()
